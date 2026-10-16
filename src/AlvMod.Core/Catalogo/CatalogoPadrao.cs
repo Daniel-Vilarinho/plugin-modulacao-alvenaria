@@ -15,7 +15,7 @@ namespace AlvMod.Core.Catalogo
         public const string Concreto39 = "CONCRETO-39";
 
         /// <summary>Sobe quando os padrões mudam, para migrar catálogos já gravados (ver <see cref="Migrar"/>).</summary>
-        public const int VersaoAtual = 2;
+        public const int VersaoAtual = 3;
 
         public static CatalogoBlocos Criar() => new CatalogoBlocos
         {
@@ -32,8 +32,7 @@ namespace AlvMod.Core.Catalogo
             {
                 Nova(39, FuncaoPeca.Principal, 10, cor: 74),
                 Nova(19, FuncaoPeca.Meio, 12, cor: 204),
-                Nova(54, FuncaoPeca.Encontro, 14, cor: 30,
-                    habilitada: false), // só em encontros de parede (fase de encontros L/T/X)
+                Nova(54, FuncaoPeca.Encontro, 14, cor: 30), // o motor só usa na ponta que chega num encontro
                 Nova(34, FuncaoPeca.Amarracao, 20, cor: 170),
                 Nova(9, FuncaoPeca.Compensador, 22, cor: 8, grauteavel: false),
                 Nova(4, FuncaoPeca.Compensador, 24, cor: 8, grauteavel: false),
@@ -65,7 +64,18 @@ namespace AlvMod.Core.Catalogo
         public static bool Migrar(CatalogoBlocos catalogo)
         {
             if (catalogo.VersaoPadrao >= VersaoAtual) return false;
+            if (catalogo.VersaoPadrao < 2) MigrarNomes(catalogo);
 
+            // v3: o 54 deixa de ser desligado; o motor passa a usá-lo só nas pontas em encontro.
+            foreach (var p in catalogo.Familias.SelectMany(f => f.Pecas))
+                if (p.Funcao == FuncaoPeca.Encontro && p.NomeBlocoDwg == "P-Bloco54") p.Habilitada = true;
+
+            catalogo.VersaoPadrao = VersaoAtual;
+            return true;
+        }
+
+        private static void MigrarNomes(CatalogoBlocos catalogo)
+        {
             var novo = Familia39Concreto();
             foreach (var f in catalogo.Familias)
             {
@@ -84,8 +94,6 @@ namespace AlvMod.Core.Catalogo
             }
             catalogo.Familias.RemoveAll(f => f.Nome == "CERAMICO-39" &&
                                              f.Pecas.All(p => p.NomeBlocoDwg.StartsWith("P-CER-", StringComparison.Ordinal)));
-            catalogo.VersaoPadrao = VersaoAtual;
-            return true;
         }
     }
 }

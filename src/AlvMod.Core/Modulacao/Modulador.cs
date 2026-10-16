@@ -101,29 +101,34 @@ namespace AlvMod.Core.Modulacao
             _unidades = _pecas.Select(p => (p.Comprimento + familia.Junta) / Passo).ToArray();
         }
 
-        public ResultadoModulacao PrimeiraFiada(double comprimentoCm, Bordas aberturas = Bordas.Nenhuma) =>
-            Modular(comprimentoCm, null, aberturas, "1ª fiada");
+        /// <param name="aberturas">Pontas que encostam em vão (ou encontro): sem compensador ali.</param>
+        /// <param name="encontros">Pontas que chegam num encontro de paredes: só nelas entra peça de encontro (54).</param>
+        public ResultadoModulacao PrimeiraFiada(double comprimentoCm, Bordas aberturas = Bordas.Nenhuma,
+            Bordas encontros = Bordas.Nenhuma) =>
+            Modular(comprimentoCm, null, aberturas, encontros, "1ª fiada");
 
         /// <param name="juntasPrimeiraFiada">Centro das juntas da 1ª fiada, em cm a partir do início do trecho.</param>
         public ResultadoModulacao SegundaFiada(double comprimentoCm, IEnumerable<double> juntasPrimeiraFiada,
-            Bordas aberturas = Bordas.Nenhuma) =>
-            Modular(comprimentoCm, (juntasPrimeiraFiada ?? Enumerable.Empty<double>()).ToList(), aberturas, "2ª fiada");
+            Bordas aberturas = Bordas.Nenhuma, Bordas encontros = Bordas.Nenhuma) =>
+            Modular(comprimentoCm, (juntasPrimeiraFiada ?? Enumerable.Empty<double>()).ToList(), aberturas, encontros, "2ª fiada");
 
         /// <summary>Comprimentos que fecham, o mais próximo abaixo e acima do medido.</summary>
-        public List<int> ComprimentosValidosProximos(double comprimentoCm, Bordas aberturas = Bordas.Nenhuma)
+        public List<int> ComprimentosValidosProximos(double comprimentoCm, Bordas aberturas = Bordas.Nenhuma,
+            Bordas encontros = Bordas.Nenhuma)
         {
             var resultado = new List<int>();
-            int? abaixo = MaiorQueFecha((int)Math.Floor((comprimentoCm + _familia.Junta) / Passo), aberturas);
+            int? abaixo = MaiorQueFecha((int)Math.Floor((comprimentoCm + _familia.Junta) / Passo), aberturas, encontros);
             if (abaixo.HasValue) resultado.Add(abaixo.Value * Passo - _familia.Junta);
 
             int n0 = (int)Math.Floor((comprimentoCm + _familia.Junta) / Passo);
             for (int n = n0 + 1; n < n0 + 40; n++)
-                if (Resolver(n, null, aberturas) != null) { resultado.Add(n * Passo - _familia.Junta); break; }
+                if (Resolver(n, null, aberturas, encontros) != null) { resultado.Add(n * Passo - _familia.Junta); break; }
 
             return resultado.Where(c => Math.Abs(c - comprimentoCm) > 1e-9).ToList();
         }
 
-        private ResultadoModulacao Modular(double comprimentoCm, List<double> juntas1, Bordas aberturas, string nomeFiada)
+        private ResultadoModulacao Modular(double comprimentoCm, List<double> juntas1, Bordas aberturas, Bordas encontros,
+            string nomeFiada)
         {
             var r = new ResultadoModulacao { ComprimentoMedido = comprimentoCm };
             string medido = Cm(comprimentoCm);
@@ -132,7 +137,7 @@ namespace AlvMod.Core.Modulacao
             double modulavel = n * Passo - _familia.Junta;
             List<Peca> sequencia = null;
             if (n > 0 && Math.Abs(modulavel - comprimentoCm) <= _opcoes.Tolerancia)
-                sequencia = Resolver(n, juntas1, aberturas);
+                sequencia = Resolver(n, juntas1, aberturas, encontros);
 
             if (sequencia != null)
             {
@@ -143,7 +148,7 @@ namespace AlvMod.Core.Modulacao
             }
 
             bool fechaSemJuntas = juntas1 != null && n > 0 && Math.Abs(modulavel - comprimentoCm) <= _opcoes.Tolerancia
-                                  && Resolver(n, null, aberturas) != null;
+                                  && Resolver(n, null, aberturas, encontros) != null;
             if (fechaSemJuntas)
             {
                 // O comprimento fecha; o que impede é a 1ª fiada. Não força junta a prumo.
@@ -153,8 +158,8 @@ namespace AlvMod.Core.Modulacao
             }
 
             // Não fecha: coloca as peças a partir do início ("a parede chegando") e deixa a sobra no fim.
-            r.Sugestoes = ComprimentosValidosProximos(comprimentoCm, aberturas);
-            var parcial = PreencherParcial(comprimentoCm, juntas1, aberturas & Bordas.Inicio);
+            r.Sugestoes = ComprimentosValidosProximos(comprimentoCm, aberturas, encontros);
+            var parcial = PreencherParcial(comprimentoCm, juntas1, aberturas & Bordas.Inicio, encontros & Bordas.Inicio);
             if (parcial != null)
             {
                 Posicionar(r, parcial);
@@ -167,21 +172,21 @@ namespace AlvMod.Core.Modulacao
         }
 
         /// <summary>Maior preenchimento que cabe no comprimento, começando do início do trecho.</summary>
-        private List<Peca> PreencherParcial(double comprimentoCm, List<double> juntas1, Bordas aberturas)
+        private List<Peca> PreencherParcial(double comprimentoCm, List<double> juntas1, Bordas aberturas, Bordas encontros)
         {
             int nMax = (int)Math.Floor((comprimentoCm + _familia.Junta + _opcoes.Tolerancia) / Passo);
             for (int n = nMax; n > 0; n--)
             {
-                var seq = Resolver(n, juntas1, aberturas);
+                var seq = Resolver(n, juntas1, aberturas, encontros);
                 if (seq != null) return seq;
             }
             return null;
         }
 
-        private int? MaiorQueFecha(int nMax, Bordas aberturas)
+        private int? MaiorQueFecha(int nMax, Bordas aberturas, Bordas encontros)
         {
             for (int n = nMax; n > 0 && n > nMax - 40; n--)
-                if (Resolver(n, null, aberturas) != null) return n;
+                if (Resolver(n, null, aberturas, encontros) != null) return n;
             return null;
         }
 
@@ -199,10 +204,11 @@ namespace AlvMod.Core.Modulacao
         /// DP de trás para frente: melhor[i] = menor custo para preencher da unidade i até n.
         /// Como o desempate favorece a peça mais barata na posição mais à esquerda, os blocos
         /// principais ficam no começo e as peças especiais no fim do trecho.
-        /// Regras: compensador nunca encosta em abertura (questionário, item 34); na 2ª fiada,
+        /// Regras: compensador nunca encosta em abertura (questionário, item 34); bloco de encontro (54) só
+        /// na ponta que chega num encontro de paredes; na 2ª fiada,
         /// junta a menos da defasagem mínima é proibida e abaixo da ideal é penalizada.
         /// </summary>
-        private List<Peca> Resolver(int n, List<double> juntas1, Bordas aberturas)
+        private List<Peca> Resolver(int n, List<double> juntas1, Bordas aberturas, Bordas encontros)
         {
             var melhor = new int[n + 1];
             var escolha = new int[n + 1];
@@ -218,6 +224,11 @@ namespace AlvMod.Core.Modulacao
 
                     if (_pecas[k].EhCompensador &&
                         ((i == 0 && aberturas.HasFlag(Bordas.Inicio)) || (fim == n && aberturas.HasFlag(Bordas.Fim))))
+                        continue;
+
+                    // Peça de encontro (54) só na ponta que chega num encontro de paredes.
+                    if (_pecas[k].Funcao == FuncaoPeca.Encontro &&
+                        !((i == 0 && encontros.HasFlag(Bordas.Inicio)) || (fim == n && encontros.HasFlag(Bordas.Fim))))
                         continue;
 
                     int custoJunta = 0;

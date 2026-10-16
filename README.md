@@ -28,7 +28,33 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 
 ---
 
-## Fluxo de trabalho
+## Fluxo de trabalho: pavimento inteiro (recomendado)
+
+1. **`ALVPLANTA`** na arquitetura limpa:
+   - pergunta a unidade e a escala;
+   - pede para **clicar uma linha de parede, uma de porta e uma de janela**, para aprender os layers
+     daquele arquiteto (Enter reaproveita os da obra);
+   - pede para **selecionar o pavimento** com uma janela de seleção.
+
+   O plugin então detecta paredes, portas, janelas e encontros (L/T/X), **numera as paredes** e
+   desenha os eixos para conferência. Depois pergunta se pode modular e, com Sim, desenha a
+   **1ª fiada do pavimento todo**, com cotas.
+2. Confira e edite a 1ª fiada à mão.
+3. **`ALVPLANTA2`**: selecione a planta da 1ª fiada (arquitetura + blocos já editados) e indique um
+   ponto nela e o correspondente na planta da 2ª fiada. O plugin desenha a **2ª fiada do pavimento
+   todo**, lendo a 1ª como ela está, com numeração e cotas.
+4. `ALVQUANT` e `ALVRELATORIO` para o quantitativo e as paredes que não fecharam.
+
+**Regras dos encontros (amarração direta):**
+- Em cada encontro passa direto **uma** parede, e ela se alterna entre as fiadas. Na 1ª fiada
+  passa a parede que continua ou a maior (questionário, item 17); na 2ª, a perpendicular a ela.
+- A parede que passa avança até a face externa da outra. A que não passa encosta nela, com 1 cm de
+  junta.
+- O **bloco 54** só entra na ponta que chega num encontro, e nunca há compensador nessas pontas
+  (prumada de graute).
+- Trechos curtíssimos junto a portas (**bonecas**) são apontados no relatório para resolver à mão.
+
+## Fluxo de trabalho: parede por parede
 
 1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças
    que a construtora **não** usa e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
@@ -49,6 +75,8 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 
 | Comando | O que faz |
 |---|---|
+| `ALVPLANTA` | Pavimento inteiro: detecta paredes/portas/janelas/encontros, numera e gera a 1ª fiada + cotas. |
+| `ALVPLANTA2` | Pavimento inteiro: 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada. |
 | `ALVOBRA` | Família, peças desabilitadas, preços, unidade e escala da obra (gravados no DWG). |
 | `ALV1FIADA` | 1ª fiada + cotas (trechos e vãos). |
 | `ALV2FIADA` | 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada, + cotas. |
@@ -72,7 +100,7 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
   prumo nunca é desenhada.
 - Parede que não fecha: as peças são colocadas a partir do início do trecho (ponta esquerda/inferior),
   a sobra fica no fim para ajuste manual e tudo entra no relatório.
-- O bloco 54 (encontro de paredes) fica desligado até a fase de encontros L/T/X.
+- O bloco 54 (encontro de paredes) só é usado nas pontas que chegam num encontro (`ALVPLANTA`).
 
 ### Blocos e layers
 
@@ -97,11 +125,13 @@ Catálogos criados pela v0.2 (com os nomes provisórios) são corrigidos sozinho
 
 ### Limitações atuais
 
-- Paredes retas, uma por vez. Ainda não trata encontros L/T/X nem identifica portas e janelas sozinho
-  (os segmentos selecionados indicam onde estão os vãos). Como a arquitetura não vem modulada, muitas
-  paredes isoladas vão dar "não fecha" até a fase de encontros, que é onde o comprimento real de
-  cada parede é definido.
-- Ainda não numera as paredes nem gera elevações.
+- A leitura automática (`ALVPLANTA`) só pega paredes **ortogonais**. Paredes inclinadas são
+  avisadas e devem ser feitas com `ALV1FIADA`/`ALV2FIADA`.
+- A arquitetura não vem modulada, então vários trechos ficam com **sobra de poucos cm**. Eles vão
+  para o relatório com os comprimentos que fecham, e o ajuste é manual.
+- As regras de encontro seguem a amarração direta padrão e **precisam ser validadas pelo
+  engenheiro** num pavimento real.
+- Ainda não gera as elevações (etapa 2).
 
 ---
 

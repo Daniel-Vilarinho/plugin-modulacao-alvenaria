@@ -43,9 +43,17 @@ namespace AlvMod.Core.Catalogo
         /// <summary>Folga de marco somada ao vão da arquitetura nas janelas (cm, total dos dois lados).</summary>
         [DataMember(Name = "folgaJanela", Order = 8)] public double FolgaJanela { get; set; } = 6;
 
+        /// <summary>Layers da arquitetura lidos pelo ALVPLANTA (escolhidos clicando numa linha de cada tipo).</summary>
+        [DataMember(Name = "layersParede", Order = 9)] public List<string> LayersParede { get; set; } = new List<string>();
+        [DataMember(Name = "layersPorta", Order = 10)] public List<string> LayersPorta { get; set; } = new List<string>();
+        [DataMember(Name = "layersJanela", Order = 11)] public List<string> LayersJanela { get; set; } = new List<string>();
+
         [OnDeserializing]
         private void AntesDeLer(StreamingContext _)
         {
+            LayersParede = new List<string>();
+            LayersPorta = new List<string>();
+            LayersJanela = new List<string>();
             PecasDesabilitadas = new List<string>();
             FatorCm = 1;
             Escala = 50;

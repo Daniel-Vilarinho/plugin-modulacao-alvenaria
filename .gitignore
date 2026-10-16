@@ -9,3 +9,6 @@ TestResults/
 *.dwl
 *.dwl2
 *.bak
+
+# Plantas reais de clientes: só na máquina local, nunca no repositório público.
+tests/AlvMod.Core.Tests/DadosLocais/
