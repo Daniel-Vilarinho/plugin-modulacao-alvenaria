@@ -129,8 +129,8 @@ namespace AlvMod.Core.Tests
             var interna = PlanejadorFiadas.Trechos(p, 2, new OpcoesFiadas()).Single(t => t.Parede.Nome == "PAREDE 4");
             Assert.Equal(0.5, interna.Inicio, 3);   // passa até a face externa das paredes de cima e de baixo
             Assert.Equal(299.5, interna.Fim, 3);
-            Assert.Equal(Bordas.Ambas, interna.Pontas.EncontroT);   // a parede que atravessa o T leva o 54 nas duas pontas
-            Assert.Equal(Bordas.Nenhuma, interna.Pontas.Canto);
+            Assert.Equal(Bordas.Ambas, interna.Pontas.Passa34);     // atravessa o T: termina em 34 nas duas pontas
+            Assert.Equal(Bordas.Ambas, interna.Pontas.Encontro);    // e o 19 não entra ali
         }
 
         [Fact]
@@ -205,6 +205,55 @@ namespace AlvMod.Core.Tests
             Assert.Contains(pontos, x => Math.Abs(x - 247) < 0.01);   // 300 - (100 + 6) / 2
             Assert.Contains(pontos, x => Math.Abs(x - 353) < 0.01);
             Assert.Equal(4, pontos.Count);                 // fim da parede, janela (2 pontos), início
+        }
+    
+        private static OpcoesFiadas Com54() =>
+            new OpcoesFiadas { BlocoEncontro = CatalogoPadrao.Familia39Concreto().Buscar("54") };
+
+        [Fact]
+        public void T_recebe_54_centrado_na_parede_continua_na_fiada_em_que_ela_passa()
+        {
+            var p = Detectar();
+            var baixo = p.Paredes.Single(w => w.Horizontal && w.Coord < 10);
+
+            var f1 = PlanejadorFiadas.Planejar(p, 1, Com54());
+            var fixa = Assert.Single(f1.Fixas, f => f.Parede == baixo);
+            Assert.Equal("54", fixa.Peca.Codigo);
+            Assert.Equal(200, (fixa.Inicio + fixa.Fim) / 2, 3);          // centrado no encontro (x = 200)
+
+            // Os trechos vizinhos ficam a 1 cm do 54 e começam/terminam com 39.
+            var vizinhos = f1.Trechos.Where(t => t.Parede == baixo).OrderBy(t => t.Inicio).ToList();
+            var antes = vizinhos.Single(t => Math.Abs(t.Fim - (fixa.Inicio - 1)) < 0.01);
+            var depois = vizinhos.Single(t => Math.Abs(t.Inicio - (fixa.Fim + 1)) < 0.01);
+            Assert.True(antes.Pontas.Exige39.HasFlag(Bordas.Fim));
+            Assert.True(depois.Pontas.Exige39.HasFlag(Bordas.Inicio));
+
+            // Na 2ª fiada a parede de baixo é cortada em volta da interna (que passa com 34) e não tem 54.
+            var f2 = PlanejadorFiadas.Planejar(p, 2, Com54());
+            Assert.DoesNotContain(f2.Fixas, f => f.Parede == baixo);
+            var interna = f2.Trechos.Single(t => t.Parede.Nome == "PAREDE 4");
+            Assert.Equal(Bordas.Ambas, interna.Pontas.Passa34);
+        }
+
+        [Fact]
+        public void T_com_54_deixa_meio_bloco_de_defasagem_entre_as_fiadas_na_parede_continua()
+        {
+            var p = Detectar();
+            var op = Com54();
+            var m = new Modulador(CatalogoPadrao.Familia39Concreto());
+            var baixo = p.Paredes.Single(w => w.Horizontal && w.Coord < 10);
+
+            var p1 = PlanejadorFiadas.Planejar(p, 1, op);
+            var f1 = p1.Trechos.Select(t => (trecho: t, resultado: m.PrimeiraFiada(t.Comprimento, t.Pontas))).ToList();
+            var arestas1 = PlanejadorFiadas.Arestas(f1, baixo, 1, p1.Fixas);
+
+            var p2 = PlanejadorFiadas.Planejar(p, 2, op);
+            var cortados = p2.Trechos.Where(t => t.Parede == baixo && t.Fim > 150).OrderBy(t => t.Inicio).ToList();
+            // As pontas do corte da 2ª fiada (200 ± 8) ficam a 20 cm das juntas do 54 da 1ª (200 ± 27,5).
+            Assert.Contains(arestas1, a => Math.Abs(a - 172.5) < 0.6);
+            Assert.Contains(arestas1, a => Math.Abs(a - 227.5) < 0.6);
+            Assert.Contains(cortados, t => Math.Abs(t.Fim - 192) < 0.01);
+            Assert.Contains(cortados, t => Math.Abs(t.Inicio - 208) < 0.01);
         }
     }
 }

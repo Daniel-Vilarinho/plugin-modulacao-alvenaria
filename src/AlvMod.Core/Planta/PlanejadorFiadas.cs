@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using AlvMod.Core.Catalogo;
 using AlvMod.Core.Modulacao;
 
 namespace AlvMod.Core.Planta
@@ -13,7 +14,7 @@ namespace AlvMod.Core.Planta
         public double Inicio { get; set; }
         public double Fim { get; set; }
 
-        /// <summary>O que existe em cada ponta (porta, encontro em T, canto): define onde cada peça pode entrar.</summary>
+        /// <summary>O que existe em cada ponta (porta, encontro, canto): define onde cada peça pode entrar.</summary>
         public Pontas Pontas { get; set; } = new Pontas();
 
         /// <summary>Nome da parede com sufixo do segmento entre portas (ex.: "PAREDE 11-B").</summary>
@@ -22,6 +23,22 @@ namespace AlvMod.Core.Planta
         public double Comprimento => Fim - Inicio;
 
         public override string ToString() => $"{Nome} [{Inicio:0.#}; {Fim:0.#}] = {Comprimento:0.#} cm";
+    }
+
+    /// <summary>Peça com posição fixa (o 54 centrado nos encontros em T e em cruz).</summary>
+    public sealed class PecaFixa
+    {
+        public Parede Parede { get; set; }
+        public Peca Peca { get; set; }
+        public double Inicio { get; set; }
+        public double Fim => Inicio + Peca.Comprimento;
+    }
+
+    /// <summary>Uma fiada planejada: trechos a modular e peças fixas.</summary>
+    public sealed class PlanoFiada
+    {
+        public List<TrechoFiada> Trechos { get; } = new List<TrechoFiada>();
+        public List<PecaFixa> Fixas { get; } = new List<PecaFixa>();
     }
 
     public sealed class OpcoesFiadas
@@ -42,17 +59,24 @@ namespace AlvMod.Core.Planta
 
         /// <summary>Trechos mais curtos que isso são descartados com aviso (cm).</summary>
         public double TrechoMinimo { get; set; } = 4;
+
+        /// <summary>
+        /// Bloco de encontro (54). Quando informado, os encontros em T e em cruz recebem um 54 fixo,
+        /// centrado no encontro, na parede que passa direto naquela fiada. Sem ele, a parede passa contínua.
+        /// </summary>
+        public Peca BlocoEncontro { get; set; }
     }
 
     /// <summary>
-    /// Transforma as paredes detectadas em trechos de alvenaria de cada fiada, aplicando a amarração
-    /// direta nos encontros (questionário, itens 16 e 17):
-    ///  - em cada encontro passa direto UMA parede, alternando entre fiadas (ímpar: a passante/maior;
+    /// Transforma as paredes detectadas em trechos de alvenaria de cada fiada, com a amarração direta da
+    /// família 39 (meio bloco de defasagem entre as fiadas):
+    ///  - em cada encontro passa direto UMA parede, alternando entre as fiadas (ímpar: a contínua/maior;
     ///    par: a perpendicular a ela);
-    ///  - a parede que passa e termina no encontro avança até a face externa da outra (eixo + largura/2);
-    ///  - a que não passa e termina ali recua até a face da que passa, com junta (eixo − largura/2 − junta);
-    ///  - a que não passa mas continua do outro lado é cortada em volta do encontro;
-    ///  - portas e passagens cortam a alvenaria (porta = vão + folga de marco); janelas não cortam
+    ///  - canto (L) e parede que chega num T: a que passa avança até a face externa da outra e termina em 34;
+    ///    a que não passa recua até a face da outra, com 1 cm de junta, e começa com 39;
+    ///  - T e cruz: a parede contínua que passa recebe um 54 fixo centrado no encontro; quando não passa,
+    ///    é cortada em volta da outra (1 cm de junta de cada lado) e as peças junto ao corte são 39;
+    ///  - portas e passagens cortam a alvenaria (porta = tamanho + folga de marco); janelas não cortam
     ///    a 1ª e a 2ª fiada.
     /// </summary>
     public static class PlanejadorFiadas
@@ -61,9 +85,9 @@ namespace AlvMod.Core.Planta
         private sealed class Ponta
         {
             public bool Porta;      // porta ou passagem
-            public bool Encontro;   // encosta em outra parede
-            public bool T54;        // parede que atravessa um T: lugar do 54
-            public bool Canto;      // canto (L)
+            public bool Encontro;   // encosta em outra parede (a parede continua ali)
+            public bool Passa34;    // passa direto no canto / atravessa o T
+            public bool Exige39;    // encosta na parede que passa ou no 54
         }
 
         private sealed class Corte
@@ -73,9 +97,12 @@ namespace AlvMod.Core.Planta
             public Ponta Antes;     // ponta do trecho que começa em B
         }
 
-        public static List<TrechoFiada> Trechos(PlantaDetectada planta, int fiada, OpcoesFiadas op, List<string> avisos = null)
+        public static List<TrechoFiada> Trechos(PlantaDetectada planta, int fiada, OpcoesFiadas op, List<string> avisos = null) =>
+            Planejar(planta, fiada, op, avisos).Trechos;
+
+        public static PlanoFiada Planejar(PlantaDetectada planta, int fiada, OpcoesFiadas op, List<string> avisos = null)
         {
-            var resultado = new List<TrechoFiada>();
+            var plano = new PlanoFiada();
             double meia = op.Largura / 2, recuo = op.Largura / 2 + op.Junta;
 
             foreach (var w in planta.Paredes)
@@ -83,6 +110,7 @@ namespace AlvMod.Core.Planta
                 double inicio = w.Inicio, fim = w.Fim;
                 Ponta pontaInicio = null, pontaFim = null;
                 var cortes = new List<Corte>();
+                var centros54 = new List<double>();
 
                 foreach (var e in planta.EncontrosDe(w))
                 {
@@ -93,26 +121,47 @@ namespace AlvMod.Core.Planta
                     {
                         bool noInicio = Math.Abs(n - w.Inicio) <= Math.Abs(n - w.Fim);
                         double novo = passa ? (noInicio ? n - meia : n + meia) : (noInicio ? n + recuo : n - recuo);
-                        var ponta = new Ponta
-                        {
-                            Encontro = true,
-                            Canto = e.Tipo == TipoEncontro.L,
-                            // O 54 só no T, na ponta da parede que atravessa a outra (a que passa direto nesta fiada).
-                            T54 = passa && e.Tipo == TipoEncontro.T && e.Passantes.Count > 0
-                        };
+                        var ponta = new Ponta { Encontro = true, Passa34 = passa, Exige39 = !passa };
                         if (noInicio) { inicio = novo; pontaInicio = ponta; }
                         else { fim = novo; pontaFim = ponta; }
                     }
-                    else if (!passa)
+                    else if (passa)
+                    {
+                        if (op.BlocoEncontro != null && (e.Tipo == TipoEncontro.T || e.Tipo == TipoEncontro.X))
+                            centros54.Add(n);
+                    }
+                    else
                     {
                         cortes.Add(new Corte
                         {
                             A = n - recuo,
                             B = n + recuo,
-                            Depois = new Ponta { Encontro = true },
-                            Antes = new Ponta { Encontro = true }
+                            Depois = new Ponta { Encontro = true, Exige39 = true },
+                            Antes = new Ponta { Encontro = true, Exige39 = true }
                         });
                     }
+                }
+
+                // 54 fixo centrado no T/cruz. Encontros muito próximos (ex.: parede dupla) dividem um 54 só.
+                foreach (var grupo in AgruparEncontros(centros54, op))
+                {
+                    double l54 = op.BlocoEncontro.Comprimento;
+                    double min = grupo.Min(), max = grupo.Max(), c = (min + max) / 2;
+                    double a = c - l54 / 2, b = c + l54 / 2;
+                    bool cobre = (max - min) + op.Largura + 2 * op.Junta <= l54;
+                    if (!cobre || a < inicio - 0.01 || b > fim + 0.01)
+                    {
+                        avisos?.Add($"{w.Nome}: o 54 do encontro em {c:0.#} não coube (encontros muito próximos ou perto da ponta); parede contínua ali.");
+                        continue;
+                    }
+                    plano.Fixas.Add(new PecaFixa { Parede = w, Peca = op.BlocoEncontro, Inicio = a });
+                    cortes.Add(new Corte
+                    {
+                        A = a - op.Junta,
+                        B = b + op.Junta,
+                        Depois = new Ponta { Encontro = true, Exige39 = true },
+                        Antes = new Ponta { Encontro = true, Exige39 = true }
+                    });
                 }
 
                 // Portas e passagens cortam a alvenaria: abertura = tamanho da porta lido do desenho + folga de marco.
@@ -149,25 +198,44 @@ namespace AlvMod.Core.Planta
                         continue;
                     }
 
-                    string nome = w.Nome ?? $"#{w.Indice}";
-                    if (divisoes.Count > 0)
-                    {
-                        int segmento = divisoes.Count(d => d < (iv.a + iv.b) / 2);
-                        nome += "-" + (char)('A' + Math.Min(segmento, 25));
-                    }
-
-                    resultado.Add(new TrechoFiada
+                    plano.Trechos.Add(new TrechoFiada
                     {
                         Parede = w,
                         Fiada = fiada,
                         Inicio = iv.a,
                         Fim = iv.b,
                         Pontas = ParaPontas(iv.pa, iv.pb, op),
-                        Nome = nome
+                        Nome = NomeDoSegmento(w, divisoes, (iv.a + iv.b) / 2)
                     });
                 }
             }
-            return resultado;
+            return plano;
+        }
+
+        private static string NomeDoSegmento(Parede w, List<double> divisoes, double posicao)
+        {
+            string nome = w.Nome ?? $"#{w.Indice}";
+            if (divisoes.Count == 0) return nome;
+            int segmento = divisoes.Count(d => d < posicao);
+            return nome + "-" + (char)('A' + Math.Min(segmento, 25));
+        }
+
+        /// <summary>Encontros cujos 54 se sobreporiam viram um grupo só.</summary>
+        private static IEnumerable<List<double>> AgruparEncontros(List<double> centros, OpcoesFiadas op)
+        {
+            if (op.BlocoEncontro == null || centros.Count == 0) yield break;
+            double alcance = op.BlocoEncontro.Comprimento + op.Junta;
+            var grupo = new List<double>();
+            foreach (var c in centros.OrderBy(c => c))
+            {
+                if (grupo.Count > 0 && c - grupo[grupo.Count - 1] >= alcance)
+                {
+                    yield return grupo;
+                    grupo = new List<double>();
+                }
+                grupo.Add(c);
+            }
+            if (grupo.Count > 0) yield return grupo;
         }
 
         private static Pontas ParaPontas(Ponta a, Ponta b, OpcoesFiadas op)
@@ -178,8 +246,9 @@ namespace AlvMod.Core.Planta
                 if (x == null) return;
                 if (x.Porta || (op.SemCompensadorNosEncontros && x.Encontro)) p.SemCompensador |= lado;
                 if (x.Porta) p.Porta |= lado;
-                if (x.T54) p.EncontroT |= lado;
-                if (x.Canto) p.Canto |= lado;
+                if (x.Encontro) p.Encontro |= lado;
+                if (x.Passa34) p.Passa34 |= lado;
+                if (x.Exige39) p.Exige39 |= lado;
             }
             Marca(a, Bordas.Inicio);
             Marca(b, Bordas.Fim);
@@ -187,17 +256,24 @@ namespace AlvMod.Core.Planta
         }
 
         /// <summary>
-        /// Posições (cm, ao longo do eixo) onde a cota corrente da parede quebra: pontas dos trechos (inclui a
-        /// abertura das portas) e a abertura das janelas (tamanho + 6), que não cortam a 1ª e a 2ª fiada.
+        /// Posições (cm, ao longo do eixo) da cota corrente da parede: começo e fim da alvenaria, abertura das
+        /// portas (tamanho + 11) e das janelas (tamanho + 6). Os cortes em volta dos encontros não entram.
         /// </summary>
-        public static List<double> PontosDeCota(Parede w, IEnumerable<TrechoFiada> trechos, OpcoesFiadas op)
+        public static List<double> PontosDeCota(Parede w, IEnumerable<TrechoFiada> trechos, OpcoesFiadas op,
+            IEnumerable<PecaFixa> fixas = null)
         {
-            var pts = new List<double>();
-            foreach (var t in trechos.Where(t => t.Parede == w)) { pts.Add(t.Inicio); pts.Add(t.Fim); }
-            foreach (var v in w.Vaos.Where(v => v.Tipo == TipoVao.Janela))
+            var extremos = trechos.Where(t => t.Parede == w).SelectMany(t => new[] { t.Inicio, t.Fim })
+                .Concat((fixas ?? Enumerable.Empty<PecaFixa>()).Where(f => f.Parede == w).SelectMany(f => new[] { f.Inicio, f.Fim }))
+                .ToList();
+            if (extremos.Count == 0) return new List<double>();
+
+            double ini = extremos.Min(), fim = extremos.Max();
+            var pts = new List<double> { ini, fim };
+            foreach (var v in w.Vaos)
             {
-                var (a, b) = v.Alvenaria(op.FolgaJanela);
-                if (a > w.Inicio && b < w.Fim) { pts.Add(a); pts.Add(b); }
+                double folga = v.Tipo == TipoVao.Porta ? op.FolgaPorta : v.Tipo == TipoVao.Janela ? op.FolgaJanela : 0;
+                var (a, b) = v.Alvenaria(folga);
+                if (a > ini && b < fim) { pts.Add(a); pts.Add(b); }
             }
             var unicos = new List<double>();
             foreach (var x in pts.OrderBy(x => x))
@@ -206,11 +282,11 @@ namespace AlvMod.Core.Planta
         }
 
         /// <summary>
-        /// Arestas (cm, ao longo do eixo) de todas as peças de uma parede numa fiada já modulada: são as
-        /// posições que a fiada seguinte deve evitar (junta a prumo).
+        /// Arestas (cm, ao longo do eixo) de todas as peças de uma parede numa fiada já modulada, incluindo as
+        /// peças fixas: são as posições que a fiada seguinte deve evitar (junta a prumo).
         /// </summary>
         public static List<double> Arestas(IEnumerable<(TrechoFiada trecho, ResultadoModulacao resultado)> fiada, Parede parede,
-            double junta = 1)
+            double junta = 1, IEnumerable<PecaFixa> fixas = null)
         {
             var arestas = new List<double>();
             foreach (var (t, r) in fiada.Where(x => x.trecho.Parede == parede))
@@ -219,6 +295,11 @@ namespace AlvMod.Core.Planta
                     arestas.Add(t.Inicio + p.Inicio);
                     arestas.Add(t.Inicio + p.Fim);
                 }
+            foreach (var f in (fixas ?? Enumerable.Empty<PecaFixa>()).Where(f => f.Parede == parede))
+            {
+                arestas.Add(f.Inicio);
+                arestas.Add(f.Fim);
+            }
             return CentrosDeJunta(arestas, junta);
         }
 
@@ -232,7 +313,7 @@ namespace AlvMod.Core.Planta
             var centros = new List<double>();
             for (int i = 0; i < ordenadas.Count; i++)
             {
-                if (i + 1 < ordenadas.Count && ordenadas[i + 1] - ordenadas[i] <= junta + 0.5)
+                if (i + 1 < ordenadas.Count && ordenadas[i + 1] - ordenadas[i] <= junta + 0.6)
                 {
                     centros.Add((ordenadas[i] + ordenadas[i + 1]) / 2);
                     i++;

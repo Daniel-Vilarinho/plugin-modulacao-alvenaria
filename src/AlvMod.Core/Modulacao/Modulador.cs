@@ -18,11 +18,13 @@ namespace AlvMod.Core.Modulacao
 
     /// <summary>
     /// O que existe em cada ponta de um trecho de parede. As regras de posição das peças dependem disso
-    /// (questionário e correções do engenheiro):
+    /// (correções do engenheiro):
     ///  - nunca bolacha (4 e 9) em ponta de porta, encontro ou canto (precisa de septo para o graute);
-    ///  - ponta que encosta em porta termina em meio bloco (19);
-    ///  - o 54 só entra na ponta de parede que atravessa um encontro em T;
-    ///  - o 34 é recomendado nos cantos.
+    ///  - o 19 só na ponta de parede SEM continuidade (porta ou parede solta) — nunca em encontro;
+    ///    na ponta que encosta em porta ele é obrigatório;
+    ///  - no canto (L) e na parede que chega num T: a parede que passa termina em 34 e a que encosta
+    ///    começa com 39 (defasagem de meio bloco entre as fiadas);
+    ///  - o 54 não é escolhido pelo motor: é peça fixa, centrada nos encontros em T e em cruz.
     /// </summary>
     public sealed class Pontas
     {
@@ -32,11 +34,14 @@ namespace AlvMod.Core.Modulacao
         /// <summary>Pontas que encostam em porta/passagem: a última peça é o meio bloco (19).</summary>
         public Bordas Porta { get; set; }
 
-        /// <summary>Pontas de parede que atravessam um encontro em T: única posição do 54.</summary>
-        public Bordas EncontroT { get; set; }
+        /// <summary>Pontas que encostam em outra parede (canto, T, cruz, bloco 54): a parede continua ali, o 19 não entra.</summary>
+        public Bordas Encontro { get; set; }
 
-        /// <summary>Pontas em canto (encontro em L): posição recomendada do 34.</summary>
-        public Bordas Canto { get; set; }
+        /// <summary>Pontas de parede que passa direto no canto ou atravessa o T: a peça da ponta é o 34.</summary>
+        public Bordas Passa34 { get; set; }
+
+        /// <summary>Pontas que encostam na parede que passa (ou no 54 do encontro): a peça da ponta é o 39.</summary>
+        public Bordas Exige39 { get; set; }
 
         public static Pontas Nenhuma => new Pontas();
 
@@ -44,16 +49,19 @@ namespace AlvMod.Core.Modulacao
         {
             SemCompensador = Espelhar(SemCompensador),
             Porta = Espelhar(Porta),
-            EncontroT = Espelhar(EncontroT),
-            Canto = Espelhar(Canto)
+            Encontro = Espelhar(Encontro),
+            Passa34 = Espelhar(Passa34),
+            Exige39 = Espelhar(Exige39)
         };
 
-        internal Pontas SemMarcasDoLado(Bordas lado) => new Pontas
+        /// <summary>Tira as exigências de peça da ponta onde fica a sobra (ela não encosta de verdade na outra parede).</summary>
+        internal Pontas SemExigenciasDoLado(Bordas lado) => new Pontas
         {
             SemCompensador = SemCompensador,
             Porta = Porta,
-            EncontroT = EncontroT & ~lado,
-            Canto = Canto & ~lado
+            Encontro = Encontro,
+            Passa34 = Passa34 & ~lado,
+            Exige39 = Exige39 & ~lado
         };
 
         internal static Bordas Espelhar(Bordas b)
@@ -64,8 +72,8 @@ namespace AlvMod.Core.Modulacao
             return r;
         }
 
-        /// <summary>Ponta "dura": encosta em outra parede (encontro/canto), onde a sobra não pode ficar.</summary>
-        public bool Dura(Bordas lado) => SemCompensador.HasFlag(lado) && !Porta.HasFlag(lado);
+        /// <summary>Ponta "dura": encosta em outra parede, onde não pode sobrar espaço (a junta tem de ser 1 cm).</summary>
+        public bool Dura(Bordas lado) => Encontro.HasFlag(lado);
     }
 
     public sealed class OpcoesModulacao
@@ -98,7 +106,7 @@ namespace AlvMod.Core.Modulacao
 
     public sealed class ResultadoModulacao
     {
-        /// <summary>O trecho fechou exatamente, sem sobra.</summary>
+        /// <summary>O trecho fechou (com, no máximo, a tolerância distribuída nas juntas).</summary>
         public bool Sucesso { get; set; }
 
         /// <summary>Não fechou, mas as peças foram colocadas e sobrou <see cref="Sobra"/>.</summary>
@@ -123,7 +131,7 @@ namespace AlvMod.Core.Modulacao
 
         /// <summary>Posições (cm) do centro de cada junta interna.</summary>
         public IEnumerable<double> Juntas(int junta) =>
-            Pecas.Take(Math.Max(0, Pecas.Count - 1)).Select(p => p.Fim + junta / 2.0);
+            Pecas.Zip(Pecas.Skip(1), (a, b) => (a.Fim + b.Inicio) / 2);
     }
 
     /// <summary>
@@ -131,8 +139,8 @@ namespace AlvMod.Core.Modulacao
     /// Trabalha numa grade inteira cujo passo é o MDC de (peça + junta) de todas as peças
     /// (5 cm na família 39), para evitar erro de ponto flutuante.
     ///
-    /// Prioridade (custo): 39 → 34 → 19/54 (só onde permitido) → bolachas. Todas as peças ficam a 1 cm
-    /// (a junta) uma da outra; quando o trecho não fecha, a sobra vai para o lado da porta.
+    /// Prioridade (custo): 39 → 34 → 19 (só em ponta livre) → bolachas. As peças ficam a 1 cm uma da
+    /// outra; a diferença de até 0,5 cm do desenho vai para o lado da porta ou é dividida entre as juntas.
     /// </summary>
     public sealed class Modulador
     {
@@ -143,6 +151,7 @@ namespace AlvMod.Core.Modulacao
         private readonly List<Peca> _pecas;
         private readonly int[] _unidades;
         private readonly int _iMeio;
+        private readonly bool _tem34;
         private readonly int _custoPrincipal;
 
         public int Passo { get; }
@@ -153,9 +162,10 @@ namespace AlvMod.Core.Modulacao
             _familia = familia ?? throw new ArgumentNullException(nameof(familia));
             _opcoes = opcoes ?? new OpcoesModulacao();
 
+            // O 54 nunca é escolhido pelo motor (é peça fixa dos encontros em T e cruz).
             // Ordem = desempate: mais barata primeiro; entre iguais, a maior.
             _pecas = familia.PecasDeFiada()
-                .Where(p => p.Comprimento > 0)
+                .Where(p => p.Comprimento > 0 && p.Funcao != FuncaoPeca.Encontro)
                 .OrderBy(p => p.Custo)
                 .ThenByDescending(p => p.Comprimento)
                 .ToList();
@@ -165,6 +175,7 @@ namespace AlvMod.Core.Modulacao
             Passo = _pecas.Select(p => p.Comprimento + familia.Junta).Aggregate(Mdc);
             _unidades = _pecas.Select(p => (p.Comprimento + familia.Junta) / Passo).ToArray();
             _iMeio = _pecas.FindIndex(p => p.Funcao == FuncaoPeca.Meio);
+            _tem34 = _pecas.Any(p => p.Funcao == FuncaoPeca.Amarracao);
             var principais = _pecas.Where(p => p.Funcao == FuncaoPeca.Principal).Select(p => p.Custo).ToList();
             _custoPrincipal = principais.Count > 0 ? principais.Min() : _pecas.Min(p => p.Custo);
         }
@@ -187,7 +198,7 @@ namespace AlvMod.Core.Modulacao
             SegundaFiada(comprimentoCm, juntasPrimeiraFiada, Converter(aberturas, encontros));
 
         private static Pontas Converter(Bordas aberturas, Bordas encontros) =>
-            new Pontas { SemCompensador = aberturas | encontros, EncontroT = encontros };
+            new Pontas { SemCompensador = aberturas | encontros, Encontro = encontros };
 
         /// <summary>Comprimentos que fecham, o mais próximo abaixo e acima do medido.</summary>
         public List<int> ComprimentosValidosProximos(double comprimentoCm, Pontas pontas = null)
@@ -205,13 +216,14 @@ namespace AlvMod.Core.Modulacao
         }
 
         private bool Fecha(int n, Pontas pontas) =>
-            Resolver(n, null, pontas, 0, true) != null || Resolver(n, null, pontas, 0, false) != null;
+            Resolver(n, null, pontas, 0, true, true) != null || Resolver(n, null, pontas, 0, false, false) != null;
 
         // ------------------------------------------------------------------ modulação
 
         private sealed class Tentativa
         {
             public bool Porta19;
+            public bool PecasDoEncontro;
             public double Minimo;
             public string Aviso;
         }
@@ -221,19 +233,27 @@ namespace AlvMod.Core.Modulacao
         {
             double min = _opcoes.SobreposicaoMinima;
             bool temPorta = (p.Porta != Bordas.Nenhuma) && _iMeio >= 0;
-            var lista = new List<Tentativa> { new Tentativa { Porta19 = temPorta, Minimo = min } };
+            bool temEncontro = (p.Passa34 | p.Exige39) != Bordas.Nenhuma;
+            var lista = new List<Tentativa> { new Tentativa { Porta19 = temPorta, PecasDoEncontro = temEncontro, Minimo = min } };
+            if (temEncontro)
+                lista.Add(new Tentativa
+                {
+                    Porta19 = temPorta,
+                    PecasDoEncontro = false,
+                    Minimo = min,
+                    Aviso = "a peça junto ao encontro não pôde ser a do padrão (34 na parede que passa, 39 na que encosta)"
+                });
             if (temPorta)
-                lista.Add(new Tentativa { Porta19 = false, Minimo = min, Aviso = "a ponta junto à porta não coube em meio bloco (19)" });
+                lista.Add(new Tentativa { Porta19 = false, PecasDoEncontro = false, Minimo = min, Aviso = "a ponta junto à porta não coube em meio bloco (19)" });
             if (segundaFiada)
             {
                 if (min > 5)
                     lista.Add(new Tentativa
                     {
-                        Porta19 = false,
                         Minimo = 5,
                         Aviso = $"defasagem entre as fiadas reduzida para 5 cm (o mínimo é {Cm(min)} cm)"
                     });
-                lista.Add(new Tentativa { Porta19 = false, Minimo = 0, Aviso = "junta a prumo inevitável neste trecho" });
+                lista.Add(new Tentativa { Minimo = 0, Aviso = "junta a prumo inevitável neste trecho" });
             }
             return lista;
         }
@@ -251,9 +271,9 @@ namespace AlvMod.Core.Modulacao
             {
                 foreach (var t in tentativas)
                 {
-                    var seq = Resolver(n, juntas1, pontas, t.Minimo, t.Porta19);
+                    var seq = Resolver(n, juntas1, pontas, t.Minimo, t.Porta19, t.PecasDoEncontro);
                     if (seq == null) continue;
-                    Posicionar(r, seq, 0);
+                    PosicionarAjustado(r, seq, comprimentoCm - modulavel, pontas);
                     r.Sucesso = true;
                     if (t.Aviso != null) r.Avisos.Add(t.Aviso);
                     r.Mensagem = $"{nomeFiada}: {medido} cm = " + string.Join(" + ", seq.Select(x => x.Codigo)) +
@@ -266,8 +286,7 @@ namespace AlvMod.Core.Modulacao
             // para os blocos de paredes diferentes ficarem sempre a 1 cm; a sobra vai para o lado da porta/livre.
             r.Sugestoes = ComprimentosValidosProximos(comprimentoCm, pontas);
             bool ancoraNoFim = pontas.Dura(Bordas.Fim) && !pontas.Dura(Bordas.Inicio);
-            var p2 = ancoraNoFim ? pontas.Espelhado() : pontas;
-            p2 = p2.SemMarcasDoLado(Bordas.Fim); // a ponta da sobra não encosta de verdade na outra parede
+            var p2 = (ancoraNoFim ? pontas.Espelhado() : pontas).SemExigenciasDoLado(Bordas.Fim);
             List<double> j2 = segunda && ancoraNoFim ? juntas1.Select(j => comprimentoCm - j).ToList() : juntas1;
 
             int nMax = (int)Math.Floor((comprimentoCm + _familia.Junta + _opcoes.Tolerancia) / Passo);
@@ -275,14 +294,14 @@ namespace AlvMod.Core.Modulacao
             {
                 foreach (var t in tentativas)
                 {
-                    var seq = Resolver(k, j2, p2, t.Minimo, t.Porta19);
+                    var seq = Resolver(k, j2, p2, t.Minimo, t.Porta19, t.PecasDoEncontro);
                     if (seq == null) continue;
 
                     double ocupado = k * Passo - _familia.Junta;
                     r.Sobra = comprimentoCm - ocupado;
                     r.SobraNoInicio = ancoraNoFim;
                     if (ancoraNoFim) seq.Reverse();
-                    Posicionar(r, seq, ancoraNoFim ? r.Sobra : 0);
+                    Posicionar(r, seq, ancoraNoFim ? r.Sobra : 0, 0);
                     if (t.Aviso != null) r.Avisos.Add(t.Aviso);
                     string lado = ancoraNoFim ? "no início (junto à porta/ponta livre)"
                                 : pontas.Porta.HasFlag(Bordas.Fim) ? "no fim, junto à porta" : "no fim";
@@ -296,13 +315,31 @@ namespace AlvMod.Core.Modulacao
             return r;
         }
 
-        private void Posicionar(ResultadoModulacao r, List<Peca> sequencia, double inicio)
+        /// <summary>
+        /// Posiciona as peças de um trecho que fechou dentro da tolerância. A diferença (até 0,5 cm) entre o
+        /// comprimento medido e o modulado vai para a ponta "mole" (porta/livre); se as duas pontas encostam em
+        /// outras paredes, é dividida igualmente entre as juntas e as duas pontas (fica imperceptível).
+        /// </summary>
+        private void PosicionarAjustado(ResultadoModulacao r, List<Peca> seq, double diferenca, Pontas p)
+        {
+            if (Math.Abs(diferenca) < 1e-9) { Posicionar(r, seq, 0, 0); return; }
+            bool duraIni = p.Dura(Bordas.Inicio), duraFim = p.Dura(Bordas.Fim);
+            if (!duraFim) Posicionar(r, seq, 0, 0);                 // diferença fica na ponta final
+            else if (!duraIni) Posicionar(r, seq, diferenca, 0);   // peças encostam na ponta final
+            else
+            {
+                double parte = diferenca / (seq.Count + 1);
+                Posicionar(r, seq, parte, parte);
+            }
+        }
+
+        private void Posicionar(ResultadoModulacao r, List<Peca> sequencia, double inicio, double extraPorJunta)
         {
             double x = inicio;
             foreach (var peca in sequencia)
             {
                 r.Pecas.Add(new PecaPosicionada { Peca = peca, Inicio = x });
-                x += peca.Comprimento + _familia.Junta;
+                x += peca.Comprimento + _familia.Junta + extraPorJunta;
             }
         }
 
@@ -311,14 +348,15 @@ namespace AlvMod.Core.Modulacao
         /// <summary>
         /// DP de trás para frente: melhor[i] = menor custo para preencher da unidade i até n.
         /// Regras de posição (correções do engenheiro):
-        ///  - 54: só na ponta de parede que atravessa um T; custa como um 39;
-        ///  - 19: só nas pontas, nunca no meio; na ponta que encosta em porta é obrigatório e custa como um 39;
-        ///  - 34: segunda prioridade; em canto (L) custa menos que no meio da parede;
+        ///  - 19: só em ponta sem continuidade (porta ou livre), nunca no meio nem em encontro;
+        ///    na ponta que encosta em porta é obrigatório;
+        ///  - ponta em encontro: 34 na parede que passa, 39 na que encosta (quando <paramref name="pecasDoEncontro"/>);
+        ///  - 34: segunda prioridade no meio da parede;
         ///  - bolacha (4 e 9): nunca em ponta de porta, encontro ou canto;
         ///  - 2ª fiada: junta a menos da defasagem mínima é proibida e abaixo da ideal é penalizada
         ///    (exceto a junta ao lado do 19 da porta, que é a mesma nas duas fiadas).
         /// </summary>
-        private List<Peca> Resolver(int n, List<double> juntas1, Pontas p, double minimo, bool exigirPorta19)
+        private List<Peca> Resolver(int n, List<double> juntas1, Pontas p, double minimo, bool exigirPorta19, bool pecasDoEncontro)
         {
             var melhor = new int[n + 1];
             var escolha = new int[n + 1];
@@ -338,6 +376,13 @@ namespace AlvMod.Core.Modulacao
                     var peca = _pecas[k];
                     int custo = peca.Custo;
 
+                    bool emPorta = (ini && p.Porta.HasFlag(Bordas.Inicio)) || (ultimo && p.Porta.HasFlag(Bordas.Fim));
+                    bool emEncontro = (ini && p.Encontro.HasFlag(Bordas.Inicio)) || (ultimo && p.Encontro.HasFlag(Bordas.Fim));
+                    bool exige34 = pecasDoEncontro && _tem34 &&
+                                   ((ini && p.Passa34.HasFlag(Bordas.Inicio)) || (ultimo && p.Passa34.HasFlag(Bordas.Fim)));
+                    bool exige39 = pecasDoEncontro &&
+                                   ((ini && p.Exige39.HasFlag(Bordas.Inicio)) || (ultimo && p.Exige39.HasFlag(Bordas.Fim)));
+
                     switch (peca.Funcao)
                     {
                         case FuncaoPeca.Compensador:
@@ -346,25 +391,27 @@ namespace AlvMod.Core.Modulacao
                                 continue;
                             break;
                         case FuncaoPeca.Meio:
-                            if (!ini && !ultimo) continue; // nunca no meio da parede
-                            if ((ini && p.Porta.HasFlag(Bordas.Inicio)) || (ultimo && p.Porta.HasFlag(Bordas.Fim)))
-                                custo = _custoPrincipal;
-                            break;
-                        case FuncaoPeca.Encontro:
-                            if (!((ini && p.EncontroT.HasFlag(Bordas.Inicio)) || (ultimo && p.EncontroT.HasFlag(Bordas.Fim))))
-                                continue; // o 54 só no encontro em T
-                            custo = _custoPrincipal;
+                            if (!ini && !ultimo) continue;  // nunca no meio da parede
+                            if (emEncontro) continue;        // nunca onde a parede continua (canto, T, cruz)
+                            if (emPorta) custo = _custoPrincipal;
                             break;
                         case FuncaoPeca.Amarracao:
-                            if ((ini && p.Canto.HasFlag(Bordas.Inicio)) || (ultimo && p.Canto.HasFlag(Bordas.Fim)))
-                                custo = (peca.Custo + _custoPrincipal) / 2;
+                            if (exige34) custo = _custoPrincipal;
                             break;
                     }
 
-                    if (exigirPorta19 &&
-                        ((ini && p.Porta.HasFlag(Bordas.Inicio)) || (ultimo && p.Porta.HasFlag(Bordas.Fim))) &&
-                        peca.Funcao != FuncaoPeca.Meio)
-                        continue;
+                    // Bolachas e 34 de ajuste vão para o meio da parede, longe dos encontros e portas
+                    // (pontos de graute): pequena penalidade até 80 cm das pontas, só muda a posição.
+                    if (peca.Funcao == FuncaoPeca.Compensador || (peca.Funcao == FuncaoPeca.Amarracao && !exige34))
+                    {
+                        int perto = Math.Min(i, n - fim);
+                        int limite = 80 / Passo;
+                        if (perto < limite) custo += 1 + (limite - perto) * 3 / limite;
+                    }
+
+                    if (exigirPorta19 && emPorta && peca.Funcao != FuncaoPeca.Meio) continue;
+                    if (exige34 && peca.Funcao != FuncaoPeca.Amarracao) continue;
+                    if (exige39 && peca.Funcao != FuncaoPeca.Principal) continue;
 
                     int custoJunta = 0;
                     if (!ultimo)

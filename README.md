@@ -50,7 +50,8 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
   passa a parede que continua ou a maior (questionário, item 17); na 2ª, a perpendicular a ela.
 - A parede que passa avança até a face externa da outra. A que não passa encosta nela, com 1 cm de
   junta.
-- Trechos curtíssimos junto a portas (**bonecas**) que não fecham são apontados no relatório.
+- **Bonecas** curtas entre uma porta e um encontro (ex.: 16–31 cm), onde nenhum bloco cabe pelas regras,
+  ficam vazias e vão para o relatório para resolver à mão (ou mover a porta).
 
 ## Fluxo de trabalho: parede por parede
 
@@ -91,10 +92,18 @@ Valem para as duas fiadas, e todas as peças ficam sempre **1 cm uma da outra**:
 | Peça | Onde pode entrar |
 |---|---|
 | **39** | Em qualquer lugar. **É sempre a primeira prioridade** (o mais barato). |
-| **34** | Segunda prioridade. Recomendado **nos cantos**; no meio da parede só se for preciso adaptar. |
-| **19** | **Só nas pontas, nunca no meio da parede.** É obrigatório na ponta que encosta em porta (a parede "acaba em 20": 19 + 1 de junta). |
-| **54** | **Só no encontro em T**, na ponta da parede que atravessa a outra. Nunca em canto (L) nem no meio. |
-| **9 e 4 (bolachas)** | **Nunca em canto, encontro ou ponta de porta** (precisa dos septos para o graute). Só no meio da parede, e por último. |
+| **34** | **Na ponta da parede que passa direto num canto (L) ou que atravessa um T.** No meio da parede só como ajuste (no máximo três seguidos; depois disso, duas bolachas). |
+| **19** | **Só na ponta de parede sem continuidade** (porta ou parede que termina solta). Nunca em canto, T, cruz ou no meio. Obrigatório junto à porta ("acaba em 20"). |
+| **54** | **Peça fixa, centrada em todo encontro em T e em cruz**, na parede que passa direto naquela fiada. Dois T muito próximos (parede dupla) dividem um 54 só. |
+| **9 e 4 (bolachas)** | **Nunca em canto, encontro ou ponta de porta** (precisa dos septos para o graute). Só no meio da parede, longe das pontas, e por último. |
+
+**Amarração nos encontros** (sempre meio bloco, 20 cm, de defasagem entre a 1ª e a 2ª fiada):
+
+| Encontro | Fiada em que passa a parede A | Fiada em que passa a parede B |
+|---|---|---|
+| **Canto (L)** | A termina em **34** até a face externa; B encosta com **39** | B termina em **34**; A encosta com **39** |
+| **T** (A contínua, B chega) | A recebe um **54 centrado** no T; B encosta com **39** | B atravessa A e termina em **34**; A é cortada e encosta com **39** dos dois lados |
+| **Cruz** | A recebe um **54 centrado**; B é cortada e encosta com **39** | B recebe um **54 centrado**; A é cortada e encosta com **39** |
 
 - Junta de 1 cm. Família 39: só fecham comprimentos terminados em **4 ou 9** (ex.: 599, 604, 639).
 - **Porta:** o plugin **lê o tamanho da folha pelo arco** da porta no desenho e usa **tamanho + 11 cm**,
@@ -102,6 +111,8 @@ Valem para as duas fiadas, e todas as peças ficam sempre **1 cm uma da outra**:
   abertura de 140 cm → alvenaria de 141 cm.) Sem arco, usa o vão desenhado + 11.
 - **Janela:** tamanho do vidro + 6 cm. A janela não corta a 1ª nem a 2ª fiada, mas **aparece na cota**.
 - **Cotas pela face da parede**, em cadeia: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
+- **Diferença do desenho de até 0,5 cm** (a arquitetura não é exata): vai para o lado da porta ou é
+  dividida entre todas as juntas — nunca vira uma junta de 1,5 cm.
 - 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**. A junta ao
   lado do 19 da porta é a mesma nas duas fiadas (exceção combinada). Se uma parede não tem solução com
   a defasagem mínima, ela é feita mesmo assim **com aviso no relatório** (nunca fica vazia).

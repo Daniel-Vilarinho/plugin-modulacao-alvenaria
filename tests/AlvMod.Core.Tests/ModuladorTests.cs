@@ -70,13 +70,15 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Pecas_principais_ficam_no_inicio_e_especiais_no_fim()
+        public void Pecas_de_ajuste_ficam_no_meio_da_parede_longe_das_pontas()
         {
             var r = NovoModulador().PrimeiraFiada(604);
 
             Assert.True(r.Sucesso, r.Mensagem);
             Assert.Equal("39", r.Pecas.First().Peca.Codigo);
-            Assert.NotEqual("39", r.Pecas.Last().Peca.Codigo);
+            Assert.Equal("39", r.Pecas.Last().Peca.Codigo);
+            var ajuste = r.Pecas.Single(p => p.Peca.Codigo != "39");
+            Assert.InRange(ajuste.Inicio, 80, 604 - 80);   // a mais de 80 cm das pontas
         }
 
         [Fact]
@@ -156,7 +158,7 @@ namespace AlvMod.Core.Tests
 
             Assert.True(r.Sucesso, r.Mensagem);
             Assert.Equal(15, r.Pecas.Count(p => p.Peca.Codigo == "39"));
-            Assert.Equal("4", r.Pecas.Last().Peca.Codigo);
+            Assert.Equal(1, r.Pecas.Count(p => p.Peca.Codigo == "4"));
             Assert.DoesNotContain(r.Pecas, p => p.Peca.Codigo == "34");
         }
 
@@ -206,12 +208,14 @@ namespace AlvMod.Core.Tests
         private static readonly Pontas[] Variacoes =
         {
             Pontas.Nenhuma,
-            new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Ambas },
-            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim },
+            // canto: passa numa ponta, encosta na outra
+            new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Ambas, Passa34 = Bordas.Inicio, Exige39 = Bordas.Fim },
+            // porta numa ponta, encontro na outra
+            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim, Encontro = Bordas.Inicio, Exige39 = Bordas.Inicio },
             new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Ambas },
-            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Inicio, Canto = Bordas.Fim },
-            new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Ambas },
-            new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Fim, Canto = Bordas.Inicio },
+            // entre dois encontros (corte em volta do T / do 54)
+            new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Ambas, Exige39 = Bordas.Ambas },
+            new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Ambas, Passa34 = Bordas.Ambas },
         };
 
         [Fact]
@@ -229,9 +233,13 @@ namespace AlvMod.Core.Tests
                         var f = ps[i].Peca.Funcao;
                         string onde = $"{cm - 1} cm, peça {i} ({ps[i].Peca.Codigo})";
 
-                        if (f == FuncaoPeca.Meio || f == FuncaoPeca.Encontro) Assert.True(ini || ultimo, onde + ": 19/54 no meio");
-                        if (f == FuncaoPeca.Encontro)
-                            Assert.True((ini && pontas.EncontroT.HasFlag(Bordas.Inicio)) || (ultimo && pontas.EncontroT.HasFlag(Bordas.Fim)), onde + ": 54 fora do T");
+                        Assert.NotEqual(FuncaoPeca.Encontro, f);               // o 54 só como peça fixa
+                        if (f == FuncaoPeca.Meio)
+                        {
+                            Assert.True(ini || ultimo, onde + ": 19 no meio");
+                            Assert.False(ini && pontas.Encontro.HasFlag(Bordas.Inicio), onde + ": 19 em encontro");
+                            Assert.False(ultimo && pontas.Encontro.HasFlag(Bordas.Fim), onde + ": 19 em encontro");
+                        }
                         if (f == FuncaoPeca.Compensador)
                         {
                             Assert.False(ini && pontas.SemCompensador.HasFlag(Bordas.Inicio), onde + ": bolacha na ponta");
@@ -270,30 +278,34 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Se_o_19_nao_couber_na_porta_relaxa_e_avisa()
+        public void Nunca_19_em_encontro_mesmo_que_ficasse_mais_barato()
         {
-            // 39 cm: um bloco inteiro; o 19 + 19 não cabe junto a uma parede de 39 com a regra de porta só numa ponta? Cabe: 19+1+19.
-            // Para forçar o relaxamento, só o 39 está habilitado.
-            var familia = CatalogoPadrao.Familia39Concreto();
-            foreach (var p in familia.Pecas.Where(p => p.Codigo != "39")) p.Habilitada = false;
+            // 99 cm = 39 + 39 + 19 seria o natural; com encontro nas duas pontas o 19 não pode entrar.
+            var r = NovoModulador().PrimeiraFiada(99, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Ambas });
 
-            var r = new Modulador(familia).PrimeiraFiada(39, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim });
-
-            Assert.True(r.Sucesso, r.Mensagem);
-            Assert.Equal("39", r.Pecas.Single().Peca.Codigo);
+            Assert.DoesNotContain(r.Pecas, p => p.Peca.Codigo == "19");
         }
 
         [Fact]
-        public void Bloco_54_so_na_ponta_do_encontro_em_T()
+        public void Canto_parede_que_passa_termina_em_34_e_a_que_encosta_comeca_com_39()
         {
             var m = NovoModulador();
-            // 54 + 39 = 94 cm.
-            var comT = m.PrimeiraFiada(94, new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Fim });
-            var semT = m.PrimeiraFiada(94, new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Fim });
+            // Passa no início: 34 + 39×k. 34 + 1 + 39 + 1 + 39 = 114.
+            var passa = m.PrimeiraFiada(114, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Inicio, Passa34 = Bordas.Inicio });
+            var encosta = m.PrimeiraFiada(119, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Inicio, Exige39 = Bordas.Inicio });
 
-            Assert.True(comT.Sucesso, comT.Mensagem);
-            Assert.Equal("54", comT.Pecas.Last().Peca.Codigo);
-            Assert.DoesNotContain(semT.Pecas, p => p.Peca.Codigo == "54");
+            Assert.True(passa.Sucesso, passa.Mensagem);
+            Assert.Equal("34", passa.Pecas.First().Peca.Codigo);
+            Assert.True(encosta.Sucesso, encosta.Mensagem);
+            Assert.Equal("39", encosta.Pecas.First().Peca.Codigo);
+        }
+
+        [Fact]
+        public void Motor_nunca_escolhe_o_54_ele_e_peca_fixa_do_encontro()
+        {
+            var m = NovoModulador();
+            for (int cm = 54; cm <= 400; cm += 5)
+                Assert.DoesNotContain(m.PrimeiraFiada(cm, Pontas.Nenhuma).Pecas, p => p.Peca.Codigo == "54");
         }
 
         [Fact]
@@ -312,22 +324,32 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Canto_prefere_o_34_na_ponta()
+        public void Diferenca_de_desenho_ate_meio_cm_nao_vira_junta_de_1_5_cm()
         {
-            var r = NovoModulador().PrimeiraFiada(154, new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Fim });
+            var m = NovoModulador();
+            // Entre duas paredes (as duas pontas duras): 599,5 cm em vez de 599 → a diferença é dividida.
+            var duro = m.PrimeiraFiada(599.5, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Ambas });
+            Assert.True(duro.Sucesso, duro.Mensagem);
+            Assert.InRange(duro.Pecas.First().Inicio, 0, 0.05);
+            Assert.InRange(599.5 - duro.Pecas.Last().Fim, 0, 0.05);
+            for (int i = 1; i < duro.Pecas.Count; i++)
+                Assert.InRange(duro.Pecas[i].Inicio - duro.Pecas[i - 1].Fim, 1, 1.05);
 
-            Assert.True(r.Sucesso, r.Mensagem);
-            Assert.Equal("34", r.Pecas.Last().Peca.Codigo);
+            // Com porta no fim: as peças encostam no encontro e a diferença fica do lado da porta.
+            var porta = m.PrimeiraFiada(599.5, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Inicio, Porta = Bordas.Fim });
+            Assert.Equal(0, porta.Pecas.First().Inicio, 3);
+            for (int i = 1; i < porta.Pecas.Count; i++)
+                Assert.Equal(1, porta.Pecas[i].Inicio - porta.Pecas[i - 1].Fim, 3);
         }
 
         [Fact]
         public void Sobra_vai_para_o_lado_da_porta_e_nunca_para_o_lado_do_encontro()
         {
             var m = NovoModulador();
-            // 600 cm não fecha (sobra de 1 cm). Encontro no início e porta no fim: sobra no fim.
-            var noFim = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim });
+            // 600 cm não fecha. Encontro no início e porta no fim: sobra no fim.
+            var noFim = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Inicio, Porta = Bordas.Fim });
             // Encontro no fim e porta no início: as peças encostam no encontro e a sobra fica no início.
-            var noInicio = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Inicio });
+            var noInicio = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Encontro = Bordas.Fim, Porta = Bordas.Inicio });
 
             Assert.True(noFim.Parcial);
             Assert.False(noFim.SobraNoInicio);
@@ -335,7 +357,6 @@ namespace AlvMod.Core.Tests
 
             Assert.True(noInicio.Parcial);
             Assert.True(noInicio.SobraNoInicio);
-            Assert.Equal(600 - noInicio.Sobra, noInicio.Pecas.Last().Fim - noInicio.Sobra, 3);
             Assert.Equal(600, noInicio.Pecas.Last().Fim, 3);   // encostada no encontro
             Assert.Equal(noInicio.Sobra, noInicio.Pecas.First().Inicio, 3);
             for (int i = 1; i < noInicio.Pecas.Count; i++)

@@ -64,10 +64,12 @@ namespace AlvMod.Plugin
                 var modulador = new Modulador(ctx.Familia);
                 var opF = CriarOpcoesFiadas(ctx);
                 var avisos = new List<string>();
-                var trechos = PlanejadorFiadas.Trechos(planta, 1, opF, avisos);
+                var plano = PlanejadorFiadas.Planejar(planta, 1, opF, avisos);
+                var trechos = plano.Trechos;
+                DesenharFixas(desenhista, plano.Fixas, fator);
                 int fechados = ModularEDesenhar(doc, "ALVPLANTA", trechos, fator, desenhista,
                     t => modulador.PrimeiraFiada(t.Comprimento, t.Pontas));
-                if (cotar.Value) Cotar(desenhista, planta, trechos, fator, ctx, opF);
+                if (cotar.Value) Cotar(desenhista, planta, trechos, plano.Fixas, fator, ctx, opF);
 
                 tr.Commit();
                 foreach (var a in avisos) Registro.Adicionar(doc, Gravidade.Aviso, "ALVPLANTA", null, a);
@@ -117,17 +119,19 @@ namespace AlvMod.Plugin
                 var modulador = new Modulador(ctx.Familia);
                 var opF = CriarOpcoesFiadas(ctx);
                 var avisos = new List<string>();
-                var trechos = PlanejadorFiadas.Trechos(planta, 2, opF, avisos);
+                var plano = PlanejadorFiadas.Planejar(planta, 2, opF, avisos);
+                var trechos = plano.Trechos;
 
                 var desenhista = new Desenhista(doc.Database, tr, fator, deslocamento.Value);
                 DesenharEixosENumeracao(doc.Database, tr, planta, fator, ctx.Config.Escala, deslocamento.Value);
+                DesenharFixas(desenhista, plano.Fixas, fator);
                 int fechados = ModularEDesenhar(doc, "ALVPLANTA2", trechos, fator, desenhista, t =>
                 {
                     var arestas = PlanejadorFiadas.CentrosDeJunta(ArestasDaParede(pecas1, t.Parede), opF.Junta)
                         .Select(a => a - t.Inicio).ToList();
                     return modulador.SegundaFiada(t.Comprimento, arestas, t.Pontas);
                 });
-                if (cotar.Value) Cotar(desenhista, planta, trechos, fator, ctx, opF);
+                if (cotar.Value) Cotar(desenhista, planta, trechos, plano.Fixas, fator, ctx, opF);
                 ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
 
                 tr.Commit();
@@ -225,8 +229,22 @@ namespace AlvMod.Plugin
             Largura = LarguraParede(ctx),
             Junta = ctx.Familia.Junta,
             FolgaPorta = ctx.Config.FolgaPorta,
-            FolgaJanela = ctx.Config.FolgaJanela
+            FolgaJanela = ctx.Config.FolgaJanela,
+            // 54 fixo e centrado nos encontros em T e em cruz (se a obra usa o 54).
+            BlocoEncontro = ctx.Familia.Pecas.FirstOrDefault(p => p.Funcao == FuncaoPeca.Encontro && p.Habilitada)
         };
+
+        /// <summary>Desenha as peças fixas (o 54 centrado nos encontros em T e em cruz).</summary>
+        private static void DesenharFixas(Desenhista desenhista, List<PecaFixa> fixas, double fator)
+        {
+            foreach (var f in fixas)
+            {
+                var (x1, y1) = f.Parede.Ponto(f.Inicio);
+                var (x2, y2) = f.Parede.Ponto(f.Fim);
+                var geo = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
+                desenhista.Desenhar(geo, new PecaPosicionada { Peca = f.Peca, Inicio = 0 });
+            }
+        }
 
         private static int ModularEDesenhar(Document doc, string comando, List<TrechoFiada> trechos, double fator,
             Desenhista desenhista, Func<TrechoFiada, ResultadoModulacao> modular)
@@ -238,8 +256,9 @@ namespace AlvMod.Plugin
                 var geo = Geometrico(t, fator);
                 foreach (var p in r.Pecas) desenhista.Desenhar(geo, p);
                 if (r.Sucesso) { fechados++; if (r.Avisos.Count == 0) continue; }
-                if (t.Comprimento < 19 && r.Pecas.Count == 0)
-                    r.Mensagem = $"trecho de {t.Comprimento:0.#} cm (boneca junto a porta/encontro): resolver à mão. " + r.Mensagem;
+                if (r.Pecas.Count == 0 && t.Comprimento < 40)
+                    r.Mensagem = $"boneca de {t.Comprimento:0.#} cm entre porta e encontro: nenhum bloco cabe pelas regras " +
+                                 "(19 na porta, 34/39 no encontro); resolver à mão ou ajustar a posição da porta. " + r.Mensagem;
                 Relatar(doc, comando, t.Nome, geo, r);
             }
             return fechados;
@@ -257,15 +276,15 @@ namespace AlvMod.Plugin
         /// Cota corrida de cada parede, pela face: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
         /// As janelas não cortam a fiada, mas entram na cota.
         /// </summary>
-        private static void Cotar(Desenhista desenhista, PlantaDetectada planta, List<TrechoFiada> trechos, double fator,
-            ContextoObra ctx, OpcoesFiadas opF)
+        private static void Cotar(Desenhista desenhista, PlantaDetectada planta, List<TrechoFiada> trechos, List<PecaFixa> fixas,
+            double fator, ContextoObra ctx, OpcoesFiadas opF)
         {
-            foreach (var w in trechos.Select(t => t.Parede).Distinct())
+            foreach (var w in trechos.Select(t => t.Parede).Concat(fixas.Select(f => f.Parede)).Distinct())
             {
                 var (x1, y1) = w.Ponto(w.Inicio);
                 var (x2, y2) = w.Ponto(w.Fim);
                 var referencia = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
-                var pontos = PlanejadorFiadas.PontosDeCota(w, trechos, opF).Select(t =>
+                var pontos = PlanejadorFiadas.PontosDeCota(w, trechos, opF, fixas).Select(t =>
                 {
                     var (x, y) = w.Ponto(t);
                     return new Point3d(x / fator, y / fator, 0);

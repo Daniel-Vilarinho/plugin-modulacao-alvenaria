@@ -23,7 +23,11 @@ namespace AlvMod.Plugin
         {
             try { Atualizador.LimparAntigos(); } catch { }
 
-            Escrever($"\nAlvMod {Atualizador.VersaoAtualTexto} carregado. Comandos: ALVOBRA, ALV1FIADA, ALV2FIADA, ALVQUANT, ALVRELATORIO, ALVCATALOGO, ALVATUALIZAR, ALVVERSAO.");
+            // Carrega o núcleo agora: se o plugin for atualizado com o AutoCAD aberto, as duas partes antigas já
+            // estão na memória e não se mistura versão nova com antiga ("Method not found") até reiniciar.
+            _ = typeof(AlvMod.Core.Modulacao.Modulador).Assembly.FullName;
+
+            Escrever($"\nAlvMod {Atualizador.VersaoAtualTexto} carregado. Comandos: ALVOBRA, ALVPLANTA, ALVPLANTA2, ALV1FIADA, ALV2FIADA, ALVQUANT, ALVRELATORIO, ALVCATALOGO, ALVATUALIZAR, ALVVERSAO.");
 
             if (Atualizador.PastaBundle == null) return; // carregado com NETLOAD (desenvolvimento)
 

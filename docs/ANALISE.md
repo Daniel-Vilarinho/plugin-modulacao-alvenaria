@@ -43,6 +43,19 @@ modulação) e a "arquitetura limpa" que o engenheiro extrai dele para modular (
 | Paredes 100% **ortogonais** (0° e 90°) | Facilita a detecção automática de paredes e encontros. |
 | Comprimentos das faces **não modulados** (a maioria termina em 0; muitos fracionados) | Parede por parede, quase tudo vai dar "não fecha". O comprimento real só sai com os **encontros** (fase 5), que viram a prioridade. |
 
+### Correções do engenheiro após o segundo teste (v0.4.2)
+
+| # | Erro apontado | Causa | Correção |
+|---|---|---|---|
+| 1, 7 | 19 no canto e no meio da parede | O 19 era aceito em qualquer ponta de trecho, inclusive onde a parede é cortada no encontro (para quem olha, é o meio da parede). | 19 **só em ponta sem continuidade** (porta ou parede solta). |
+| 2, 5 | T e cruz sem 54; dois T vizinhos sem 54 | O 54 só entrava na ponta da parede que atravessa, e só se o comprimento favorecesse. | **54 fixo e centrado** em todo T e cruz, na parede que passa naquela fiada; T muito próximos (parede dupla) dividem um 54. Canto: 34 na que passa, 39 na que encosta. |
+| 3 | Junta de 1,5 cm | O desenho aceitava até 0,5 cm de diferença no comprimento e jogava essa diferença numa ponta. | A diferença vai para o lado da porta ou é dividida entre todas as juntas. |
+| 4, 6 | Blocos desalinhados | Combinação dos itens acima (19 e bolachas junto aos encontros, sobra no encontro). | Padrão de encontro com meio bloco de defasagem; bolachas e 34 de ajuste empurrados para o meio da parede. |
+| — | "Method not found" depois de atualizar | O AutoCAD misturava a parte nova com a antiga quando se usava o comando sem reiniciar. | O plugin carrega as duas partes ao abrir, então nunca mistura versões. |
+
+**Padrão de encontro adotado (confirmar com o engenheiro):** ver a tabela "Amarração nos encontros" no
+README. Ele dá exatamente 20 cm de defasagem entre as fiadas nos cantos, T e cruzes.
+
 ### Correções do engenheiro após o primeiro teste (v0.4.1)
 
 | # | Correção pedida | Como ficou |
