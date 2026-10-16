@@ -57,9 +57,12 @@ namespace AlvMod.Plugin.Atualizacao
         {
             get
             {
-                var contents = Path.GetDirectoryName(typeof(Atualizador).Assembly.Location);
-                var bundle = contents == null ? null : Directory.GetParent(contents)?.FullName;
-                return bundle != null && bundle.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase) ? bundle : null;
+                // A DLL fica em AlvMod.bundle\Contents\<net48|net8>\: sobe até achar a pasta .bundle.
+                var pasta = new DirectoryInfo(Path.GetDirectoryName(typeof(Atualizador).Assembly.Location) ?? ".");
+                for (int i = 0; i < 3 && pasta != null; i++, pasta = pasta.Parent)
+                    if (pasta.Name.EndsWith(".bundle", StringComparison.OrdinalIgnoreCase))
+                        return pasta.FullName;
+                return null;
             }
         }
 
@@ -124,6 +127,12 @@ namespace AlvMod.Plugin.Atualizacao
             if (bundle == null) return;
             foreach (var f in Directory.GetFiles(bundle, "*" + SufixoAntigo, SearchOption.AllDirectories))
                 try { File.Delete(f); } catch { /* ainda em uso: fica para a próxima */ }
+
+            // Até a v0.1 as DLLs ficavam direto em Contents\; agora ficam em Contents\<net48|net8>\.
+            var contents = Path.Combine(bundle, "Contents");
+            if (Directory.Exists(contents) && Directory.GetDirectories(contents).Length > 0)
+                foreach (var f in Directory.GetFiles(contents, "AlvMod.*"))
+                    try { File.Delete(f); } catch { }
         }
 
         private static void Substituir(string origem, string destino)

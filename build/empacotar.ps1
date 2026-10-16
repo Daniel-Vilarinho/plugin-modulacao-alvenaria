@@ -15,14 +15,19 @@ dotnet build (Join-Path $raiz "src/AlvMod.Plugin/AlvMod.Plugin.csproj") @props
 if ($LASTEXITCODE -ne 0) { throw "Falha na compilacao." }
 
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
-New-Item -ItemType Directory -Force (Join-Path $bundle "Contents") | Out-Null
 
-$bin = Join-Path $raiz "src/AlvMod.Plugin/bin/Release/net48"
-Copy-Item (Join-Path $bin "AlvMod.*.dll") (Join-Path $bundle "Contents")
-Copy-Item (Join-Path $bin "AlvMod.*.pdb") (Join-Path $bundle "Contents") -ErrorAction SilentlyContinue
+# Uma pasta por runtime: net48 (AutoCAD 2018-2024) e net8 (AutoCAD 2025+).
+$alvos = @{ "net48" = "net48"; "net8.0-windows" = "net8" }
+foreach ($tfm in $alvos.Keys) {
+    $destino = Join-Path $bundle ("Contents/" + $alvos[$tfm])
+    New-Item -ItemType Directory -Force $destino | Out-Null
+    $bin = Join-Path $raiz "src/AlvMod.Plugin/bin/Release/$tfm"
+    Copy-Item (Join-Path $bin "AlvMod.*.dll") $destino
+    Copy-Item (Join-Path $bin "AlvMod.*.pdb") $destino -ErrorAction SilentlyContinue
+}
 
 # O AutoCAD nunca pode receber copias das DLLs dele mesmo.
-if (Get-ChildItem (Join-Path $bundle "Contents") -Filter "ac*mgd.dll") { throw "DLL do AutoCAD foi copiada para o pacote." }
+if (Get-ChildItem $bundle -Recurse -Filter "ac*mgd.dll") { throw "DLL do AutoCAD foi copiada para o pacote." }
 
 $xml = Get-Content (Join-Path $raiz "packaging/AlvMod.bundle/PackageContents.xml") -Raw -Encoding UTF8
 $xml.Replace("__VERSAO__", $Versao) | Set-Content (Join-Path $bundle "PackageContents.xml") -Encoding utf8

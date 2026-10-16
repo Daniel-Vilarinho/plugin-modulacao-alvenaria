@@ -1,13 +1,14 @@
 # AlvMod — modulação de alvenaria autoportante para AutoCAD
 
-Plugin para AutoCAD 2022–2024 que gera a 1ª e a 2ª fiada de alvenaria autoportante
-(família 39, concreto, largura 14).
+Plugin para AutoCAD (2018 em diante; não roda no AutoCAD LT) que gera a 1ª e a 2ª fiada de
+alvenaria autoportante, cota as paredes, gera o quantitativo de blocos (Excel) e o relatório de
+inconsistências (Word).
 
-- Análise do projeto, falhas e perguntas em aberto: [docs/ANALISE.md](docs/ANALISE.md)
+- Análise do projeto e decisões do questionário: [docs/ANALISE.md](docs/ANALISE.md)
 
 ---
 
-## Para quem usa o AutoCAD (instalação uma vez só)
+## Instalação (uma vez só)
 
 1. Feche o AutoCAD.
 2. Abra o **PowerShell** (menu Iniciar → digite "PowerShell") e cole:
@@ -18,55 +19,84 @@ Plugin para AutoCAD 2022–2024 que gera a 1ª e a 2ª fiada de alvenaria autopo
 
 3. Abra o AutoCAD. A linha de comando mostra `AlvMod x.y.z carregado`.
 
-Não precisa de NETLOAD nem de mexer no SECURELOAD: o plugin fica em
-`%APPDATA%\Autodesk\ApplicationPlugins\AlvMod.bundle`, que o AutoCAD carrega sozinho.
+O plugin fica em `%APPDATA%\Autodesk\ApplicationPlugins\AlvMod.bundle` e carrega sozinho (sem NETLOAD).
 
 ### Atualizações
 
-Toda vez que o AutoCAD abre, o plugin verifica se há versão nova. Se houver, aparece a janela
-**"Há uma nova versão do AlvMod… Atualizar agora? [Sim] [Não]"**. Clique **Sim**, feche e abra o
-AutoCAD. Também dá para verificar na hora com o comando `ALVATUALIZAR`.
+Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do AlvMod… Atualizar agora?
+[Sim] [Não]"**. Clique **Sim**, feche e abra o AutoCAD. Também dá para verificar com `ALVATUALIZAR`.
 
-### Comandos
+---
+
+## Fluxo de trabalho
+
+1. **`ALVOBRA`**: escolhe a família da obra (concreto 39, cerâmico 39 ou outra cadastrada), as peças
+   que a construtora **não** usa e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
+   esquecer, o `ALV1FIADA` pergunta na primeira vez.
+2. **`ALV1FIADA`**: pergunta a unidade e a escala, pede o eixo da parede (ou as duas faces, com a
+   opção `Faces`) e os outros segmentos se a parede for cortada por porta. Depois desenha a 1ª fiada e
+   as cotas.
+3. Confira e edite a 1ª fiada à mão, se precisar.
+4. **`ALV2FIADA`**: pede o eixo, as pontas em abertura e as peças da 1ª fiada **como estão
+   desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
+   desenha a 2ª fiada lá, com cotas. Na próxima parede, basta dar Enter para usar o mesmo deslocamento.
+5. **`ALVQUANT`**: quantitativo de blocos em CSV, que abre no Excel, com total em R$ se houver preços.
+6. **`ALVRELATORIO`**: relatório .docx com todas as paredes que não fecharam, para conferir e editar.
 
 | Comando | O que faz |
 |---|---|
-| `ALV1FIADA` | Pergunta a unidade, pede o eixo da parede (LINE ou segmento de POLYLINE) e desenha a 1ª fiada. Se o comprimento não fecha, avisa `[INCONSISTÊNCIA]` e sugere os comprimentos válidos mais próximos. |
-| `ALV2FIADA` | Pede o eixo e as peças da 1ª fiada (já editadas à mão) e desenha a 2ª fiada sem junta a prumo, nos layers com sufixo ` 2F`. |
-| `ALVVERSAO` | Mostra a versão instalada. |
+| `ALVOBRA` | Família, peças desabilitadas, preços, unidade e escala da obra (gravados no DWG). |
+| `ALV1FIADA` | 1ª fiada + cotas (trechos e vãos). |
+| `ALV2FIADA` | 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada, + cotas. |
+| `ALVQUANT` | Quantitativo em CSV (Excel). Enter = desenho inteiro. |
+| `ALVRELATORIO` | Relatório de inconsistências em Word (.docx). |
+| `ALVCATALOGO` | Lista, adiciona, edita e remove peças e famílias. |
+| `ALVVERSAO` | Versão instalada e caminho do catálogo. |
 | `ALVATUALIZAR` | Procura e instala versão nova. |
 
-**Unidade:** responda quantos cm vale 1 unidade do desenho: `1` se o desenho está em cm, `100` em
-metros, `0.1` em milímetros.
+### Regras de modulação (do questionário)
 
-**Comprimentos que fecham (família 39):** só os terminados em **4 ou 9** (ex.: 599, 604, 639).
+- Junta de 1 cm. Família 39: só fecham comprimentos terminados em **4 ou 9** (ex.: 599, 604, 639).
+- Prioridade: **máximo de blocos de 39**, depois **poucos compensadores**, e evitar paredes cheias de
+  bloco de 34 (custos: 39 = 10, 19 = 12, 34 = 20, 9 = 22, 4 = 24; ajustáveis no `ALVCATALOGO`).
+- **Nunca usa compensador encostado em porta/janela.**
+- 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**; junta a
+  prumo nunca é desenhada.
+- Parede que não fecha: as peças são colocadas a partir do início do trecho (ponta esquerda/inferior),
+  a sobra fica no fim para ajuste manual e tudo entra no relatório.
+- O bloco 54 (encontro de paredes) fica desligado até a fase de encontros L/T/X.
 
-### Limitações da versão atual
+### Blocos e layers
 
-- Só paredes retas e isoladas: ainda não trata encontros L/T/X nem janelas.
-- Catálogo fixo (família 39). O bloco 54 fica desligado até a fase de encontros.
-- As peças são inseridas como blocos DWG (`P-Bloco39`, `P-Bloco 19`…), assumindo o ponto base no
-  canto inferior esquerdo e o bloco desenhado em cm. Se o bloco não existir no desenho, o plugin cria
-  um bloco provisório (retângulo) com o mesmo nome e avisa.
+Cada peça é inserida como **bloco** com nome, layer e cor do catálogo (padrão: `P-39X14X19` no layer
+`BLOCO 14X39`). O plugin assume o ponto base no **canto inferior esquerdo** e o bloco desenhado em
+**cm**. Se o bloco não existir no desenho, cria um bloco provisório (retângulo) com o mesmo nome; ao
+inserir a biblioteca real, os provisórios são substituídos. Layers que já existem mantêm a cor do
+escritório.
+
+O catálogo fica em `%APPDATA%\AlvMod\catalogo.json` e pode ser editado pelo `ALVCATALOGO` ou à mão.
+
+### Limitações atuais
+
+- Paredes retas, uma por vez. Ainda não trata encontros L/T/X nem identifica portas e janelas sozinho
+  (os segmentos selecionados indicam onde estão os vãos).
+- Ainda não numera as paredes nem gera elevações.
 
 ---
 
 ## Para quem desenvolve
 
 ```
-src/AlvMod.Core        motor de modulação (netstandard2.0, SEM AutoCAD) — testável
-src/AlvMod.Plugin      comandos do AutoCAD + atualizador (net48, x64)
-tests/AlvMod.Core.Tests  testes do motor (xUnit)
-packaging/             PackageContents.xml do bundle
-build/empacotar.ps1    compila e gera out/AlvMod-vX.Y.Z.zip
-instalar.ps1           instalador para a máquina do engenheiro
+src/AlvMod.Core          motor, catálogo, quantitativo e relatório (netstandard2.0, SEM AutoCAD)
+src/AlvMod.Plugin        comandos + atualizador (net48 → AutoCAD 2018–2024, net8.0-windows → 2025+)
+tests/AlvMod.Core.Tests  testes (xUnit)
+packaging/               PackageContents.xml do bundle
+build/empacotar.ps1      compila e gera out/AlvMod-vX.Y.Z.zip
+instalar.ps1             instalador para a máquina do engenheiro
 ```
 
-As referências do AutoCAD vêm do pacote NuGet oficial `AutoCAD.NET` (24.1 = AutoCAD 2022), com
-`ExcludeAssets=runtime`, que equivale a "Copiar Local = Falso". Por isso dá para compilar sem o
-AutoCAD instalado.
-
-### Testar o motor
+As referências do AutoCAD vêm do NuGet oficial `AutoCAD.NET` (23.0 = AutoCAD 2019 para net48; 25.0 =
+AutoCAD 2025 para net8) com `ExcludeAssets=runtime` ("Copiar Local = Falso").
 
 ```bash
 dotnet test tests/AlvMod.Core.Tests
@@ -75,9 +105,9 @@ dotnet test tests/AlvMod.Core.Tests
 ### Publicar uma versão (deploy)
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
-O workflow `Release` testa, compila, empacota e publica a release no GitHub. Na próxima vez que o
-engenheiro abrir o AutoCAD, aparece a pergunta para atualizar.
+O workflow `Release` testa, compila, empacota e publica. O AutoCAD do engenheiro pergunta se quer
+atualizar na próxima vez que abrir.

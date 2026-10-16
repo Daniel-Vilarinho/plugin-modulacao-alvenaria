@@ -1,25 +1,33 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Plugin para AutoCAD 2022–2024 (.NET Framework 4.8, x64). -->
+  <!--
+    Duas DLLs a partir do mesmo código (questionário, item 59: todas as versões do AutoCAD):
+      net48           → AutoCAD 2018 a 2024 (.NET Framework 4.8), referências do AutoCAD 2019 (R23.0)
+      net8.0-windows  → AutoCAD 2025 em diante (.NET 8), referências do AutoCAD 2025 (R25.0)
+    O PackageContents.xml do bundle diz ao AutoCAD qual DLL carregar em cada versão.
+  -->
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
     <PlatformTarget>x64</PlatformTarget>
     <RootNamespace>AlvMod.Plugin</RootNamespace>
     <AssemblyName>AlvMod.Plugin</AssemblyName>
+    <UseWindowsForms Condition="'$(TargetFramework)' == 'net8.0-windows'">true</UseWindowsForms>
+    <!-- WebClient/ServicePointManager: obsoletos no .NET 8, mas funcionam e mantêm um código só. -->
+    <NoWarn>$(NoWarn);SYSLIB0014</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Referências do AutoCAD 2022 (R24.1). ExcludeAssets=runtime equivale a "Copiar Local = Falso":
-         as DLLs do AutoCAD nunca vão junto com o plugin. -->
-    <PackageReference Include="AutoCAD.NET" Version="24.1.51000" ExcludeAssets="runtime" />
+  <!-- ExcludeAssets=runtime equivale a "Copiar Local = Falso": as DLLs do AutoCAD nunca vão junto com o plugin. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="AutoCAD.NET" Version="23.0.0" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PackageReference Include="AutoCAD.NET" Version="25.0.1" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <ItemGroup>

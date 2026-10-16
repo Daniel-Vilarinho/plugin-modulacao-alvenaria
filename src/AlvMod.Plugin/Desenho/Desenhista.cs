@@ -1,19 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AlvMod.Core.Catalogo;
 using AlvMod.Core.Modulacao;
+using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 
 namespace AlvMod.Plugin.Desenho
 {
-    /// <summary>Desenha as peças de uma fiada ao longo de um trecho.</summary>
+    /// <summary>Desenha peças e cotas de uma fiada.</summary>
     internal sealed class Desenhista
     {
+        public const string LayerCotas = "COTAS ALVENARIA";
+
         private readonly Database _db;
         private readonly Transaction _tr;
         private readonly BlockTableRecord _espaco;
         private readonly double _fator;
+        private readonly Vector3d _deslocamento;
 
         /// <summary>Blocos que não existiam no desenho e foram criados como retângulo provisório.</summary>
         public HashSet<string> BlocosProvisorios { get; } = new HashSet<string>();
@@ -21,11 +26,13 @@ namespace AlvMod.Plugin.Desenho
         public int PecasInseridas { get; private set; }
 
         /// <param name="fator">Quantos cm vale 1 unidade do desenho (1 = cm, 100 = m, 0.1 = mm).</param>
-        public Desenhista(Database db, Transaction tr, double fator)
+        /// <param name="deslocamento">Translação aplicada a tudo que for desenhado (planta da 2ª fiada).</param>
+        public Desenhista(Database db, Transaction tr, double fator, Vector3d deslocamento = default)
         {
             _db = db;
             _tr = tr;
             _fator = fator;
+            _deslocamento = deslocamento;
             _espaco = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
         }
 
@@ -35,14 +42,14 @@ namespace AlvMod.Plugin.Desenho
         /// centrada no eixo da parede. Se o bloco não existir no desenho, é criado um bloco provisório
         /// (retângulo) com o mesmo nome; ao inserir a biblioteca real, os provisórios são substituídos.
         /// </summary>
-        public void Desenhar(Trecho trecho, PecaPosicionada item, string sufixoLayer)
+        public void Desenhar(Trecho trecho, PecaPosicionada item)
         {
             var peca = item.Peca;
-            string layer = GarantirLayer(peca.Layer + sufixoLayer);
+            string layer = GarantirLayer(peca.Layer, peca.Cor);
             var bloco = GarantirBloco(peca);
 
             double meia = peca.Largura / 2.0 / _fator;
-            var canto = trecho.Inicio + trecho.Direcao * (item.Inicio / _fator) - trecho.Perpendicular * meia;
+            var canto = trecho.PontoEm(item.Inicio / _fator) - trecho.Perpendicular * meia + _deslocamento;
 
             var br = new BlockReference(canto, bloco)
             {
@@ -52,6 +59,50 @@ namespace AlvMod.Plugin.Desenho
             };
             Adicionar(br);
             PecasInseridas++;
+        }
+
+        /// <summary>
+        /// Cotas alinhadas em cadeia ao longo da parede: cada trecho de alvenaria e cada vão entre eles
+        /// (parede até o início do vão, o vão inteiro, do vão até o fim da parede — questionário, item 47).
+        /// </summary>
+        /// <param name="escala">Denominador da escala de impressão (50 para 1:50).</param>
+        public int Cotar(IList<Trecho> trechos, double escala)
+        {
+            if (trechos.Count == 0) return 0;
+            var refT = trechos[0];
+
+            // Pontas de todos os trechos, ordenadas ao longo da parede.
+            var pontos = trechos.SelectMany(t => new[] { t.Inicio, t.Fim })
+                .OrderBy(p => (p - refT.Inicio).DotProduct(refT.Direcao))
+                .ToList();
+
+            // Tamanhos pensados em papel (mm) e convertidos para o desenho: dimscale = escala / (10 × fator).
+            double dimscale = escala / (10.0 * _fator);
+            double afastamento = 8.0 * dimscale; // 8 mm no papel, abaixo/à direita da parede
+            var lado = -refT.Perpendicular * afastamento;
+            string layer = GarantirLayer(LayerCotas, 2);
+
+            int n = 0;
+            for (int i = 0; i + 1 < pontos.Count; i++)
+            {
+                if (pontos[i].DistanceTo(pontos[i + 1]) < 1e-6) continue;
+                var p1 = pontos[i] + _deslocamento;
+                var p2 = pontos[i + 1] + _deslocamento;
+                var cota = new AlignedDimension(p1, p2, p1 + lado, "", _db.Dimstyle)
+                {
+                    Layer = layer,
+                    Dimscale = dimscale
+                };
+                Adicionar(cota);
+                n++;
+            }
+            return n;
+        }
+
+        private void Adicionar(Entity ent)
+        {
+            _espaco.AppendEntity(ent);
+            _tr.AddNewlyCreatedDBObject(ent, true);
         }
 
         private ObjectId GarantirBloco(Peca peca)
@@ -76,19 +127,17 @@ namespace AlvMod.Plugin.Desenho
             return id;
         }
 
-        private void Adicionar(Entity ent)
-        {
-            _espaco.AppendEntity(ent);
-            _tr.AddNewlyCreatedDBObject(ent, true);
-        }
-
-        private string GarantirLayer(string nome)
+        private string GarantirLayer(string nome, short cor)
         {
             var lt = (LayerTable)_tr.GetObject(_db.LayerTableId, OpenMode.ForRead);
-            if (lt.Has(nome)) return nome;
+            if (lt.Has(nome)) return nome; // layer existente: mantém a cor do escritório
 
             lt.UpgradeOpen();
-            var novo = new LayerTableRecord { Name = nome };
+            var novo = new LayerTableRecord
+            {
+                Name = nome,
+                Color = Color.FromColorIndex(ColorMethod.ByAci, cor is >= 1 and <= 255 ? cor : (short)7)
+            };
             lt.Add(novo);
             _tr.AddNewlyCreatedDBObject(novo, true);
             return nome;

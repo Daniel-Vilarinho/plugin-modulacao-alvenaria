@@ -17,11 +17,14 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Seiscentos_cm_nao_fecha_e_sugere_599_ou_604()
+        public void Seiscentos_cm_nao_fecha_sugere_599_ou_604_e_preenche_ate_onde_da()
         {
             var r = NovoModulador().PrimeiraFiada(600);
 
             Assert.False(r.Sucesso);
+            Assert.True(r.Parcial);
+            Assert.Equal(599, r.Pecas.Last().Fim);
+            Assert.Equal(1, r.Sobra, 3);
             Assert.Equal(new[] { 599, 604 }, r.Sugestoes);
             Assert.Contains("599 ou 604", r.Mensagem);
         }
@@ -90,7 +93,7 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Sem_peca_de_ajuste_comprimento_impossivel_falha_e_nao_forca()
+        public void Sem_peca_de_ajuste_nao_forca_e_deixa_a_sobra_no_fim()
         {
             var familia = CatalogoPadrao.Familia39Concreto();
             foreach (var p in familia.Pecas.Where(p => p.Codigo != "39")) p.Habilitada = false;
@@ -98,7 +101,9 @@ namespace AlvMod.Core.Tests
             var r = new Modulador(familia).PrimeiraFiada(604);
 
             Assert.False(r.Sucesso);
-            Assert.Empty(r.Pecas);
+            Assert.True(r.Parcial);
+            Assert.All(r.Pecas, p => Assert.Equal("39", p.Peca.Codigo));
+            Assert.Equal(5, r.Sobra, 3);
         }
 
         [Theory]
@@ -117,7 +122,7 @@ namespace AlvMod.Core.Tests
             Assert.True(segunda.Sucesso, segunda.Mensagem);
             Assert.Equal(comprimento, segunda.Pecas.Last().Fim);
             foreach (var j2 in segunda.Juntas(1))
-                Assert.All(juntas1, j1 => Assert.True(Math.Abs(j1 - j2) >= 5, $"junta a prumo em {j2}"));
+                Assert.All(juntas1, j1 => Assert.True(Math.Abs(j1 - j2) >= 10, $"defasagem menor que 1/4 de bloco em {j2}"));
         }
 
         [Fact]
@@ -142,6 +147,67 @@ namespace AlvMod.Core.Tests
 
             Assert.False(r.Sucesso);
             Assert.Contains("prumo", r.Mensagem);
+        }
+    
+        [Fact]
+        public void Seiscentos_e_quatro_prefere_um_compensador_a_bloco_de_34_mais_compensador()
+        {
+            var r = NovoModulador().PrimeiraFiada(604);
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal(15, r.Pecas.Count(p => p.Peca.Codigo == "39"));
+            Assert.Equal("4", r.Pecas.Last().Peca.Codigo);
+            Assert.DoesNotContain(r.Pecas, p => p.Peca.Codigo == "34");
+        }
+
+        [Theory]
+        [InlineData(Bordas.Inicio)]
+        [InlineData(Bordas.Fim)]
+        [InlineData(Bordas.Ambas)]
+        public void Compensador_nunca_encosta_em_abertura(Bordas aberturas)
+        {
+            foreach (var comprimento in new[] { 604, 609, 394, 99, 1234 })
+            {
+                var r = NovoModulador().PrimeiraFiada(comprimento, aberturas);
+
+                Assert.True(r.Sucesso, r.Mensagem);
+                if (aberturas.HasFlag(Bordas.Inicio)) Assert.False(r.Pecas.First().Peca.EhCompensador, $"{comprimento}: início");
+                if (aberturas.HasFlag(Bordas.Fim)) Assert.False(r.Pecas.Last().Peca.EhCompensador, $"{comprimento}: fim");
+            }
+        }
+
+        [Fact]
+        public void Segunda_fiada_busca_defasagem_de_meio_bloco()
+        {
+            var modulador = NovoModulador();
+            var juntas1 = modulador.PrimeiraFiada(1009).Juntas(1).ToList();
+
+            var segunda = modulador.SegundaFiada(1009, juntas1);
+
+            var defasagens = segunda.Juntas(1).Select(j2 => juntas1.Min(j1 => Math.Abs(j1 - j2))).ToList();
+            Assert.True(defasagens.Count(d => d >= 20) >= defasagens.Count - 1, string.Join(",", defasagens));
+        }
+
+        [Fact]
+        public void Pecas_desabilitadas_na_obra_nao_sao_usadas_e_catalogo_original_fica_intacto()
+        {
+            var familia = CatalogoPadrao.Familia39Concreto();
+            var obra = familia.ParaObra(new[] { "4", "9" });
+
+            var r = new Modulador(obra).PrimeiraFiada(604);
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.DoesNotContain(r.Pecas, p => p.Peca.EhCompensador);
+            Assert.True(familia.Buscar("4").Habilitada);
+        }
+
+        [Fact]
+        public void Familia_ceramica_fecha_com_39_19_e_4()
+        {
+            var r = new Modulador(CatalogoPadrao.Familia39Ceramico()).PrimeiraFiada(604);
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal(604, r.Pecas.Last().Fim);
         }
     }
 }

@@ -23,7 +23,7 @@ namespace AlvMod.Plugin
         {
             try { Atualizador.LimparAntigos(); } catch { }
 
-            Escrever($"\nAlvMod {Atualizador.VersaoAtualTexto} carregado. Comandos: ALV1FIADA, ALV2FIADA, ALVATUALIZAR, ALVVERSAO.");
+            Escrever($"\nAlvMod {Atualizador.VersaoAtualTexto} carregado. Comandos: ALVOBRA, ALV1FIADA, ALV2FIADA, ALVQUANT, ALVRELATORIO, ALVCATALOGO, ALVATUALIZAR, ALVVERSAO.");
 
             if (Atualizador.PastaBundle == null) return; // carregado com NETLOAD (desenvolvimento)
 

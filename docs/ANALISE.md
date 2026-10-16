@@ -6,6 +6,44 @@ engenheiro antes da fase correspondente.
 
 ---
 
+## 0. Atualização: o que o questionário respondeu (v0.2)
+
+| Item da análise | Resposta do questionário | O que mudou no código |
+|---|---|---|
+| 7 — pesos das peças | Máximo de 39; poucos compensadores, mas preferíveis a muitos 34 (q. 20, 21) | Custos 39 = 10, 19 = 12, 34 = 20, 9 = 22, 4 = 24. 604 cm = 15 × 39 + 4. |
+| 8 — uso do 34 e do 54 | 54 é para encontros (q. 11) | 54 continua desligado até a fase de encontros. |
+| 9 — sobreposição mínima | Mínimo 1/4 do bloco, ideal meio bloco (q. 18) | Mínimo 10 cm (proibido abaixo) e penalidade abaixo de 20 cm. |
+| 6 — eixo × face | Trabalhar sempre no eixo (q. 24) | Mantido no eixo. Nova opção `Faces`: o eixo é calculado entre as duas faces (q. 38). |
+| 12 — onde desenhar a 2ª fiada | Mesmo arquivo, sem separar fiadas por layer (q. 46) | A 2ª fiada vai para a planta da 2ª fiada (ponto na 1ª → ponto na 2ª), com os mesmos layers. |
+| 13 — onde guardar o catálogo | Perguntar a família antes de modular, cadastrar blocos livremente (q. 52, 56) | Catálogo em JSON por computador (`ALVCATALOGO`); família e peças desabilitadas da obra gravadas no DWG (`ALVOBRA`). |
+| 14 — cerâmico | 4, 19 e 39 (q. 9, 11) | Família `CERAMICO-39` cadastrada. |
+| 18 — versões do AutoCAD | Todas (q. 59) | Duas DLLs: AutoCAD 2018–2024 (.NET 4.8) e 2025+ (.NET 8). LT não é possível. |
+| 4 — repositório público | Cliente não precisa do código (q. 72) | Sem conflito. |
+| — | Não modular quando não fecha, mas "pelo menos a parede chegando" (q. 22) | Coloca as peças a partir do início e deixa a sobra no fim, com aviso e relatório. |
+| — | Nunca compensador ao lado de abertura (q. 34) | Proibido nas pontas de trecho que encostam em vão. |
+| — | Cotas de parede e de vãos (q. 47) | Cotas alinhadas em cadeia (trecho, vão, trecho), dimensionadas pela escala. |
+| — | Quantitativo no Excel, com preço quando houver (q. 7, 49, 54) | `ALVQUANT` gera CSV (abre no Excel) com total em R$. |
+| — | Relatório de inconsistências em docx/pdf (q. 50) | `ALVRELATORIO` gera .docx. |
+| — | Sempre pedir a escala (q. 37, 41) | Unidade e escala perguntadas em toda modulação (padrão = última usada na obra). |
+
+### Ainda em aberto (perguntar ao engenheiro)
+
+1. **Nomes dos blocos:** o questionário diz `P-39X14X19` (q. 53), mas o arquivo de referência
+   (J Soares) usado no protótipo tinha `P-Bloco39`. A v0.2 usa o padrão do questionário. Qual é o
+   certo? E qual é a **legenda de layers e cores** (q. 45)?
+2. **Nomes dos blocos cerâmicos:** foram supostos `P-CER-39X14X19` etc. Quais são os reais?
+3. **Ponto base dos blocos:** é o canto inferior esquerdo, com o bloco desenhado em cm?
+4. **Folga de marco** (q. 30: porta = vão + 11, janela = vão + 6): o vão da polilinha da arquitetura
+   já é o vão final da alvenaria, ou o plugin deve aumentá-lo (5,5 cm de cada lado na porta)? Hoje
+   o plugin não altera.
+5. **Cota "de parede interna"** (q. 47): hoje as cotas são medidas no eixo. Devem ir para a face?
+6. **NETLOAD (q. 64) × carregamento automático:** a atualização dentro do plugin (q. 73) exige o
+   carregamento automático, então ele foi mantido. Tudo bem?
+7. **Arquivos a enviar (q. 43):** a arquitetura **sem** modulação + o **mesmo pavimento modulado à
+   mão** (1ª e 2ª fiada) + as elevações. Assim dá para comparar o resultado do plugin com o manual.
+
+---
+
 ## 1. Veredito rápido
 
 | Aspecto | Avaliação |
