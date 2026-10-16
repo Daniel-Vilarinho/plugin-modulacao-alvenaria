@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using AlvMod.Core.Catalogo;
@@ -13,15 +14,24 @@ namespace AlvMod.Core.Tests
     /// </summary>
     public class PlantaSinteticaTests
     {
-        private static List<Segmento> Planta()
+        private static List<Segmento> Planta(bool comArco = false)
         {
             var s = new List<Segmento>();
             void P(double x1, double y1, double x2, double y2) => s.Add(new Segmento("PAREDE", x1, y1, x2, y2));
-            // Faces externas (com a porta na de baixo).
-            P(0, 0, 60, 0); P(140, 0, 400, 0); P(400, 0, 400, 300); P(400, 300, 0, 300); P(0, 300, 0, 0);
-            // Faces internas (cortadas pela parede interna e pela porta).
+            // Faces externas (com a porta na de baixo e uma janela de 100 cm em x 250–350 na de cima).
+            P(0, 0, 60, 0); P(140, 0, 400, 0); P(400, 0, 400, 300); P(400, 300, 350, 300); P(250, 300, 0, 300); P(0, 300, 0, 0);
+            // Faces internas (cortadas pela parede interna, pela porta e pela janela).
             P(15, 15, 60, 15); P(140, 15, 192.5, 15); P(207.5, 15, 385, 15); P(385, 15, 385, 285);
-            P(385, 285, 207.5, 285); P(192.5, 285, 15, 285); P(15, 285, 15, 15);
+            P(385, 285, 350, 285); P(250, 285, 207.5, 285); P(192.5, 285, 15, 285); P(15, 285, 15, 15);
+            // Janela: vidro com o tamanho do vão.
+            s.Add(new Segmento("JANELA", 250, 289, 350, 289));
+            s.Add(new Segmento("JANELA", 250, 296, 350, 296));
+            // Porta de folha de 70 cm (abertura desenhada de 80, com o marco): arco com centro na dobradiça.
+            if (comArco)
+            {
+                s.Add(new Segmento("PORTA", 130, 7.5, 109.5, 57) { Raio = 70, Cx = 60, Cy = 7.5 });
+                s.Add(new Segmento("PORTA", 109.5, 57, 60, 77.5) { Raio = 70, Cx = 60, Cy = 7.5 });
+            }
             // Parede interna.
             P(192.5, 15, 192.5, 285); P(207.5, 15, 207.5, 285);
             // Porta: marcos e folha.
@@ -31,10 +41,10 @@ namespace AlvMod.Core.Tests
             return s;
         }
 
-        private static PlantaDetectada Detectar()
+        private static PlantaDetectada Detectar(bool comArco = false)
         {
-            var op = new OpcoesDeteccao { LayersParede = { "PAREDE" }, LayersPorta = { "PORTA" } };
-            var planta = DetectorParedes.Detectar(Planta(), op);
+            var op = new OpcoesDeteccao { LayersParede = { "PAREDE" }, LayersPorta = { "PORTA" }, LayersJanela = { "JANELA" } };
+            var planta = DetectorParedes.Detectar(Planta(comArco), op);
             Numeracao.Numerar(planta);
             return planta;
         }
@@ -94,8 +104,10 @@ namespace AlvMod.Core.Tests
             Assert.Equal(399.5, trechos[1].Fim, 3);
             Assert.Equal("PAREDE 2-A", trechos[0].Nome);
             Assert.Equal("PAREDE 2-B", trechos[1].Nome);
-            Assert.True(trechos[0].Bordas.HasFlag(Bordas.Fim));   // encosta na porta: sem compensador
-            Assert.True(trechos[1].Bordas.HasFlag(Bordas.Inicio));
+            Assert.True(trechos[0].Pontas.SemCompensador.HasFlag(Bordas.Fim));   // encosta na porta: sem compensador
+            Assert.True(trechos[1].Pontas.SemCompensador.HasFlag(Bordas.Inicio));
+            Assert.True(trechos[0].Pontas.Porta.HasFlag(Bordas.Fim));            // e termina em 19
+            Assert.True(trechos[1].Pontas.Porta.HasFlag(Bordas.Inicio));
         }
 
         [Fact]
@@ -117,7 +129,8 @@ namespace AlvMod.Core.Tests
             var interna = PlanejadorFiadas.Trechos(p, 2, new OpcoesFiadas()).Single(t => t.Parede.Nome == "PAREDE 4");
             Assert.Equal(0.5, interna.Inicio, 3);   // passa até a face externa das paredes de cima e de baixo
             Assert.Equal(299.5, interna.Fim, 3);
-            Assert.Equal(Bordas.Ambas, interna.Encontros);
+            Assert.Equal(Bordas.Ambas, interna.Pontas.EncontroT);   // a parede que atravessa o T leva o 54 nas duas pontas
+            Assert.Equal(Bordas.Nenhuma, interna.Pontas.Canto);
         }
 
         [Fact]
@@ -127,18 +140,71 @@ namespace AlvMod.Core.Tests
             var modulador = new Modulador(CatalogoPadrao.Familia39Concreto());
             var op = new OpcoesFiadas();
             var f1 = PlanejadorFiadas.Trechos(p, 1, op)
-                .Select(t => (trecho: t, resultado: modulador.PrimeiraFiada(t.Comprimento, t.Bordas, t.Encontros))).ToList();
+                .Select(t => (trecho: t, resultado: modulador.PrimeiraFiada(t.Comprimento, t.Pontas))).ToList();
             var f2 = PlanejadorFiadas.Trechos(p, 2, op).Select(t =>
                 (trecho: t, resultado: modulador.SegundaFiada(t.Comprimento,
-                    PlanejadorFiadas.Arestas(f1, t.Parede).Select(a => a - t.Inicio), t.Bordas, t.Encontros))).ToList();
+                    PlanejadorFiadas.Arestas(f1, t.Parede).Select(a => a - t.Inicio), t.Pontas))).ToList();
 
             Assert.All(f1, x => Assert.True(x.resultado.Pecas.Count > 0, x.trecho.ToString()));
-            foreach (var (t, r) in f2.Where(x => x.resultado.Pecas.Count > 1))
+            foreach (var (t, r) in f2.Where(x => x.resultado.Pecas.Count > 1 && !x.resultado.Avisos.Any(av => av.Contains("defasagem") || av.Contains("prumo"))))
             {
                 var arestas1 = PlanejadorFiadas.Arestas(f1, t.Parede);
-                foreach (var j in r.Juntas(1).Select(j => j + t.Inicio))
+                var juntas = r.Juntas(1).Select(j => j + t.Inicio).ToList();
+                // A junta ao lado do 19 da porta é igual nas duas fiadas (exceção combinada com o engenheiro).
+                if (t.Pontas.Porta.HasFlag(Bordas.Inicio) && juntas.Count > 0) juntas.RemoveAt(0);
+                if (t.Pontas.Porta.HasFlag(Bordas.Fim) && juntas.Count > 0) juntas.RemoveAt(juntas.Count - 1);
+                foreach (var j in juntas)
                     Assert.All(arestas1, a => Assert.True(System.Math.Abs(a - j) >= 9.99, $"{t.Nome} prumo em {j}"));
             }
+        }
+    
+        [Fact]
+        public void Porta_sem_arco_usa_o_vao_desenhado_mais_11()
+        {
+            var p = Detectar();
+            var porta = p.Paredes.SelectMany(w => w.Vaos).Single(v => v.Tipo == TipoVao.Porta);
+
+            Assert.False(porta.TamanhoLido);
+            var (a, b) = porta.Alvenaria(11);
+            Assert.Equal(54.5, a, 3);
+            Assert.Equal(145.5, b, 3);
+        }
+
+        [Fact]
+        public void Porta_com_arco_e_lida_pelo_tamanho_da_folha_mais_11_centrada_no_vao()
+        {
+            var p = Detectar(comArco: true);
+            var porta = p.Paredes.SelectMany(w => w.Vaos).Single(v => v.Tipo == TipoVao.Porta);
+
+            Assert.True(porta.TamanhoLido);
+            Assert.Equal(70, porta.Tamanho, 3);
+            var (a, b) = porta.Alvenaria(11);
+            Assert.Equal(59.5, a, 3);     // 100 - (70 + 11) / 2
+            Assert.Equal(140.5, b, 3);
+
+            var trechos = PlanejadorFiadas.Trechos(p, 1, new OpcoesFiadas())
+                .Where(t => t.Parede.Horizontal && t.Parede.Coord < 10).OrderBy(t => t.Inicio).ToList();
+            Assert.Equal(59.5, trechos[0].Fim, 3);
+            Assert.Equal(140.5, trechos[1].Inicio, 3);
+        }
+
+        [Fact]
+        public void Janela_nao_corta_a_fiada_mas_entra_na_cota_com_vao_mais_6()
+        {
+            var p = Detectar();
+            var topo = p.Paredes.Single(w => w.Horizontal && w.Coord > 200);
+            var janela = Assert.Single(topo.Vaos);
+
+            Assert.Equal(TipoVao.Janela, janela.Tipo);
+            Assert.Equal(100, janela.Tamanho, 3);        // vidro = vão
+            var op = new OpcoesFiadas();
+            var trechos = PlanejadorFiadas.Trechos(p, 1, op).Where(t => t.Parede == topo).ToList();
+            Assert.Single(trechos);                        // a janela não corta a 1ª fiada
+
+            var pontos = PlanejadorFiadas.PontosDeCota(topo, trechos, op);
+            Assert.Contains(pontos, x => Math.Abs(x - 247) < 0.01);   // 300 - (100 + 6) / 2
+            Assert.Contains(pontos, x => Math.Abs(x - 353) < 0.01);
+            Assert.Equal(4, pontos.Count);                 // fim da parede, janela (2 pontos), início
         }
     }
 }

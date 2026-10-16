@@ -50,9 +50,7 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
   passa a parede que continua ou a maior (questionário, item 17); na 2ª, a perpendicular a ela.
 - A parede que passa avança até a face externa da outra. A que não passa encosta nela, com 1 cm de
   junta.
-- O **bloco 54** só entra na ponta que chega num encontro, e nunca há compensador nessas pontas
-  (prumada de graute).
-- Trechos curtíssimos junto a portas (**bonecas**) são apontados no relatório para resolver à mão.
+- Trechos curtíssimos junto a portas (**bonecas**) que não fecham são apontados no relatório.
 
 ## Fluxo de trabalho: parede por parede
 
@@ -86,21 +84,32 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 | `ALVVERSAO` | Versão instalada e caminho do catálogo. |
 | `ALVATUALIZAR` | Procura e instala versão nova. |
 
-### Regras de modulação (do questionário)
+### Regras de modulação
+
+Valem para as duas fiadas, e todas as peças ficam sempre **1 cm uma da outra**:
+
+| Peça | Onde pode entrar |
+|---|---|
+| **39** | Em qualquer lugar. **É sempre a primeira prioridade** (o mais barato). |
+| **34** | Segunda prioridade. Recomendado **nos cantos**; no meio da parede só se for preciso adaptar. |
+| **19** | **Só nas pontas, nunca no meio da parede.** É obrigatório na ponta que encosta em porta (a parede "acaba em 20": 19 + 1 de junta). |
+| **54** | **Só no encontro em T**, na ponta da parede que atravessa a outra. Nunca em canto (L) nem no meio. |
+| **9 e 4 (bolachas)** | **Nunca em canto, encontro ou ponta de porta** (precisa dos septos para o graute). Só no meio da parede, e por último. |
 
 - Junta de 1 cm. Família 39: só fecham comprimentos terminados em **4 ou 9** (ex.: 599, 604, 639).
-- Prioridade: **máximo de blocos de 39**, depois **poucos compensadores**, e evitar paredes cheias de
-  bloco de 34 (custos: 39 = 10, 19 = 12, 34 = 20, 9 = 22, 4 = 24; ajustáveis no `ALVCATALOGO`).
-- **Nunca usa compensador encostado em porta/janela.**
-- **Folga de marco:** o vão da alvenaria é o vão da arquitetura **+11 cm na porta** e **+6 cm na
-  janela** (metade de cada lado). Passagem sem esquadria não soma folga. Os valores ficam na obra
-  (`folgaPorta`/`folgaJanela`).
-- **Cotas pela face da parede**, em cadeia: parede até o vão, o vão (já com a folga), do vão até o fim.
-- 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**; junta a
-  prumo nunca é desenhada.
-- Parede que não fecha: as peças são colocadas a partir do início do trecho (ponta esquerda/inferior),
-  a sobra fica no fim para ajuste manual e tudo entra no relatório.
-- O bloco 54 (encontro de paredes) só é usado nas pontas que chegam num encontro (`ALVPLANTA`).
+- **Porta:** o plugin **lê o tamanho da folha pelo arco** da porta no desenho e usa **tamanho + 11 cm**,
+  centrado no vão. (A abertura que o arquiteto deixa na parede já inclui o marco: folha de 130 cm →
+  abertura de 140 cm → alvenaria de 141 cm.) Sem arco, usa o vão desenhado + 11.
+- **Janela:** tamanho do vidro + 6 cm. A janela não corta a 1ª nem a 2ª fiada, mas **aparece na cota**.
+- **Cotas pela face da parede**, em cadeia: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
+- 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**. A junta ao
+  lado do 19 da porta é a mesma nas duas fiadas (exceção combinada). Se uma parede não tem solução com
+  a defasagem mínima, ela é feita mesmo assim **com aviso no relatório** (nunca fica vazia).
+- **Parede que não fecha:** as peças são colocadas encostadas na ponta que encosta em **outra parede**
+  (canto/T), e a **sobra vai para o lado da porta**. Assim as peças de paredes diferentes ficam sempre a
+  1 cm, e o relatório diz qual comprimento fecharia.
+- **Blocos do seu desenho:** o plugin mede o bloco real (`P-Bloco39` etc.). Se ele não tiver o tamanho do
+  catálogo (ex.: 40 em vez de 39, ou desenhado em metros), ajusta a escala na inserção e avisa.
 
 ### Blocos e layers
 
@@ -122,6 +131,12 @@ escritório.
 
 O catálogo fica em `%APPDATA%\AlvMod\catalogo.json` e pode ser editado pelo `ALVCATALOGO` ou à mão.
 Catálogos criados pela v0.2 (com os nomes provisórios) são corrigidos sozinhos para esse padrão.
+
+### Comandos parede por parede
+
+`ALV1FIADA`/`ALV2FIADA` seguem as mesmas regras. Como não há arco para ler, o `ALV1FIADA` **pergunta o
+tamanho da porta (folha) e da janela (vidro)** de cada vão (Enter = o vão desenhado). O `ALV2FIADA` usa
+exatamente o trecho que a 1ª fiada ocupa.
 
 ### Limitações atuais
 

@@ -138,15 +138,15 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Segunda_fiada_impossivel_reporta_em_vez_de_desenhar_prumo()
+        public void Segunda_fiada_impossivel_sem_prumo_fecha_com_aviso_em_vez_de_deixar_a_parede_vazia()
         {
             // Juntas da 1ª fiada a cada 5 cm: qualquer 2ª fiada teria junta a prumo.
             var juntas = Enumerable.Range(1, 100).Select(i => i * 5 - 0.5);
 
             var r = NovoModulador().SegundaFiada(599, juntas);
 
-            Assert.False(r.Sucesso);
-            Assert.Contains("prumo", r.Mensagem);
+            Assert.True(r.Sucesso);
+            Assert.Contains(r.Avisos, a => a.Contains("prumo"));
         }
     
         [Fact]
@@ -199,6 +199,147 @@ namespace AlvMod.Core.Tests
             Assert.True(r.Sucesso, r.Mensagem);
             Assert.DoesNotContain(r.Pecas, p => p.Peca.EhCompensador);
             Assert.True(familia.Buscar("4").Habilitada);
+        }
+    
+        // ------------------------------------------------------------------ regras do engenheiro
+
+        private static readonly Pontas[] Variacoes =
+        {
+            Pontas.Nenhuma,
+            new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Ambas },
+            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim },
+            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Ambas },
+            new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Inicio, Canto = Bordas.Fim },
+            new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Ambas },
+            new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Fim, Canto = Bordas.Inicio },
+        };
+
+        [Fact]
+        public void Regras_de_posicao_valem_para_todos_os_comprimentos_e_pontas()
+        {
+            var m = NovoModulador();
+            foreach (var pontas in Variacoes)
+                for (int cm = 14; cm <= 800; cm += 5)
+                {
+                    var r = m.PrimeiraFiada(cm - 1, pontas); // cm-1 termina em 4 ou 9
+                    var ps = r.Pecas;
+                    for (int i = 0; i < ps.Count; i++)
+                    {
+                        bool ini = i == 0, ultimo = i == ps.Count - 1;
+                        var f = ps[i].Peca.Funcao;
+                        string onde = $"{cm - 1} cm, peça {i} ({ps[i].Peca.Codigo})";
+
+                        if (f == FuncaoPeca.Meio || f == FuncaoPeca.Encontro) Assert.True(ini || ultimo, onde + ": 19/54 no meio");
+                        if (f == FuncaoPeca.Encontro)
+                            Assert.True((ini && pontas.EncontroT.HasFlag(Bordas.Inicio)) || (ultimo && pontas.EncontroT.HasFlag(Bordas.Fim)), onde + ": 54 fora do T");
+                        if (f == FuncaoPeca.Compensador)
+                        {
+                            Assert.False(ini && pontas.SemCompensador.HasFlag(Bordas.Inicio), onde + ": bolacha na ponta");
+                            Assert.False(ultimo && pontas.SemCompensador.HasFlag(Bordas.Fim), onde + ": bolacha na ponta");
+                        }
+                        if (i > 0) Assert.Equal(1, ps[i].Inicio - ps[i - 1].Fim, 3); // junta sempre de 1 cm
+                    }
+                }
+        }
+
+        [Fact]
+        public void Ponta_que_encosta_em_porta_termina_em_19()
+        {
+            var m = NovoModulador();
+            foreach (int cm in new[] { 99, 139, 179, 219, 259, 599 })
+            {
+                var r = m.PrimeiraFiada(cm, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim });
+                Assert.True(r.Sucesso, r.Mensagem);
+                Assert.Equal("19", r.Pecas.Last().Peca.Codigo);
+                Assert.Empty(r.Avisos);
+
+                var espelho = m.PrimeiraFiada(cm, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Inicio });
+                Assert.Equal("19", espelho.Pecas.First().Peca.Codigo);
+            }
+        }
+
+        [Fact]
+        public void Porta_nas_duas_pontas_exige_19_nas_duas()
+        {
+            var r = NovoModulador().PrimeiraFiada(599, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Ambas });
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal("19", r.Pecas.First().Peca.Codigo);
+            Assert.Equal("19", r.Pecas.Last().Peca.Codigo);
+            Assert.All(r.Pecas.Skip(1).Take(r.Pecas.Count - 2), p => Assert.Equal("39", p.Peca.Codigo));
+        }
+
+        [Fact]
+        public void Se_o_19_nao_couber_na_porta_relaxa_e_avisa()
+        {
+            // 39 cm: um bloco inteiro; o 19 + 19 não cabe junto a uma parede de 39 com a regra de porta só numa ponta? Cabe: 19+1+19.
+            // Para forçar o relaxamento, só o 39 está habilitado.
+            var familia = CatalogoPadrao.Familia39Concreto();
+            foreach (var p in familia.Pecas.Where(p => p.Codigo != "39")) p.Habilitada = false;
+
+            var r = new Modulador(familia).PrimeiraFiada(39, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim });
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal("39", r.Pecas.Single().Peca.Codigo);
+        }
+
+        [Fact]
+        public void Bloco_54_so_na_ponta_do_encontro_em_T()
+        {
+            var m = NovoModulador();
+            // 54 + 39 = 94 cm.
+            var comT = m.PrimeiraFiada(94, new Pontas { SemCompensador = Bordas.Ambas, EncontroT = Bordas.Fim });
+            var semT = m.PrimeiraFiada(94, new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Fim });
+
+            Assert.True(comT.Sucesso, comT.Mensagem);
+            Assert.Equal("54", comT.Pecas.Last().Peca.Codigo);
+            Assert.DoesNotContain(semT.Pecas, p => p.Peca.Codigo == "54");
+        }
+
+        [Fact]
+        public void Priorizar_39_e_usar_34_so_em_segundo_lugar()
+        {
+            var m = NovoModulador();
+
+            Assert.All(m.PrimeiraFiada(599).Pecas, p => Assert.Equal("39", p.Peca.Codigo));
+
+            // 154 cm = 39 + 39 + 39 + 34: o 34 é a adaptação, e não bolachas.
+            var r = m.PrimeiraFiada(154);
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal(3, r.Pecas.Count(p => p.Peca.Codigo == "39"));
+            Assert.Equal(1, r.Pecas.Count(p => p.Peca.Codigo == "34"));
+            Assert.DoesNotContain(r.Pecas, p => p.Peca.EhCompensador);
+        }
+
+        [Fact]
+        public void Canto_prefere_o_34_na_ponta()
+        {
+            var r = NovoModulador().PrimeiraFiada(154, new Pontas { SemCompensador = Bordas.Ambas, Canto = Bordas.Fim });
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal("34", r.Pecas.Last().Peca.Codigo);
+        }
+
+        [Fact]
+        public void Sobra_vai_para_o_lado_da_porta_e_nunca_para_o_lado_do_encontro()
+        {
+            var m = NovoModulador();
+            // 600 cm não fecha (sobra de 1 cm). Encontro no início e porta no fim: sobra no fim.
+            var noFim = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Fim });
+            // Encontro no fim e porta no início: as peças encostam no encontro e a sobra fica no início.
+            var noInicio = m.PrimeiraFiada(600, new Pontas { SemCompensador = Bordas.Ambas, Porta = Bordas.Inicio });
+
+            Assert.True(noFim.Parcial);
+            Assert.False(noFim.SobraNoInicio);
+            Assert.Equal(0, noFim.Pecas.First().Inicio, 3);
+
+            Assert.True(noInicio.Parcial);
+            Assert.True(noInicio.SobraNoInicio);
+            Assert.Equal(600 - noInicio.Sobra, noInicio.Pecas.Last().Fim - noInicio.Sobra, 3);
+            Assert.Equal(600, noInicio.Pecas.Last().Fim, 3);   // encostada no encontro
+            Assert.Equal(noInicio.Sobra, noInicio.Pecas.First().Inicio, 3);
+            for (int i = 1; i < noInicio.Pecas.Count; i++)
+                Assert.Equal(1, noInicio.Pecas[i].Inicio - noInicio.Pecas[i - 1].Fim, 3);
         }
     }
 }

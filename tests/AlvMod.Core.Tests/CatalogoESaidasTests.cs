@@ -140,5 +140,41 @@ namespace AlvMod.Core.Tests
             Assert.Equal(0, cfg.RecuoPorLado(TipoAbertura.Passagem));
             Assert.Equal(0, cfg.RecuoPorLado(TipoAbertura.Parede));
         }
+    
+        [Fact]
+        public void Custos_da_v3_migram_para_a_nova_prioridade_e_edicoes_do_usuario_ficam()
+        {
+            var antigo = "{\"versaoPadrao\":3,\"familias\":[{\"nome\":\"CONCRETO-39\",\"pecas\":[" +
+                "{\"codigo\":\"39\",\"comprimento\":39,\"funcao\":\"Principal\",\"blocoPlanta\":\"P-Bloco39\",\"custo\":10}," +
+                "{\"codigo\":\"19\",\"comprimento\":19,\"funcao\":\"Meio\",\"blocoPlanta\":\"P-Bloco19\",\"custo\":12}," +
+                "{\"codigo\":\"54\",\"comprimento\":54,\"funcao\":\"Encontro\",\"blocoPlanta\":\"P-Bloco54\",\"custo\":14}," +
+                "{\"codigo\":\"34\",\"comprimento\":34,\"funcao\":\"Amarracao\",\"blocoPlanta\":\"P-Bloco34\",\"custo\":25}," +
+                "{\"codigo\":\"9\",\"comprimento\":9,\"funcao\":\"Compensador\",\"blocoPlanta\":\"P-Bloco9\",\"custo\":22}," +
+                "{\"codigo\":\"4\",\"comprimento\":4,\"funcao\":\"Compensador\",\"blocoPlanta\":\"P-Bloco4\",\"custo\":24}]}]}";
+            var caminho = Path.Combine(Path.GetTempPath(), "alvmod-mig4-" + System.Guid.NewGuid().ToString("N") + ".json");
+            File.WriteAllText(caminho, antigo);
+
+            var f = CatalogoBlocos.Carregar(caminho).Buscar(CatalogoPadrao.Concreto39);
+
+            Assert.Equal(10, f.Buscar("39").Custo);
+            Assert.Equal(60, f.Buscar("19").Custo);
+            Assert.Equal(10, f.Buscar("54").Custo);
+            Assert.Equal(25, f.Buscar("34").Custo);   // editado pelo usuário: não mexe
+            Assert.Equal(80, f.Buscar("9").Custo);
+            Assert.Equal(90, f.Buscar("4").Custo);
+            Assert.Equal(CatalogoPadrao.VersaoAtual, CatalogoBlocos.Carregar(caminho).VersaoPadrao);
+        }
+
+        [Fact]
+        public void Ordem_de_prioridade_do_catalogo_padrao_e_39_34_19_e_bolachas_por_ultimo()
+        {
+            var f = CatalogoPadrao.Familia39Concreto();
+            int Custo(string c) => f.Buscar(c).Custo;
+
+            Assert.True(Custo("39") < Custo("34"));
+            Assert.True(Custo("34") < Custo("19"));
+            Assert.True(Custo("19") < Custo("9"));
+            Assert.True(Custo("9") < Custo("4"));
+        }
     }
 }

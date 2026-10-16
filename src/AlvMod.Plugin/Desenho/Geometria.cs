@@ -48,7 +48,7 @@ namespace AlvMod.Plugin.Desenho
 
         /// <summary>Trecho encolhido nas pontas (cm), para abrir espaço à folga de marco das aberturas.</summary>
         public Trecho Encolher(double inicioCm, double fimCm, double fatorCm) =>
-            inicioCm <= 0 && fimCm <= 0
+            Math.Abs(inicioCm) < 1e-9 && Math.Abs(fimCm) < 1e-9
                 ? this
                 : new Trecho(PontoEm(inicioCm / fatorCm), PontoEm(Comprimento - fimCm / fatorCm));
 

@@ -30,10 +30,20 @@ namespace AlvMod.Core.Tests
         {
             if (!File.Exists(Caminho)) return (null, null);
             using var doc = JsonDocument.Parse(File.ReadAllText(Caminho));
-            var segs = doc.RootElement.GetProperty("segs").EnumerateArray().Select(e => new Segmento(
-                e.GetProperty("l").GetString(),
-                e.GetProperty("x1").GetDouble(), e.GetProperty("y1").GetDouble(),
-                e.GetProperty("x2").GetDouble(), e.GetProperty("y2").GetDouble())).ToList();
+            var segs = doc.RootElement.GetProperty("segs").EnumerateArray().Select(e =>
+            {
+                var s = new Segmento(
+                    e.GetProperty("l").GetString(),
+                    e.GetProperty("x1").GetDouble(), e.GetProperty("y1").GetDouble(),
+                    e.GetProperty("x2").GetDouble(), e.GetProperty("y2").GetDouble());
+                if (e.TryGetProperty("r", out var r))
+                {
+                    s.Raio = r.GetDouble();
+                    s.Cx = e.GetProperty("cx").GetDouble();
+                    s.Cy = e.GetProperty("cy").GetDouble();
+                }
+                return s;
+            }).ToList();
             var rotulos = doc.RootElement.GetProperty("textos").EnumerateArray().Select(e => new Rotulo(
                 e.GetProperty("t").GetString(), e.GetProperty("x").GetDouble(), e.GetProperty("y").GetDouble())).ToList();
             return (segs, rotulos);

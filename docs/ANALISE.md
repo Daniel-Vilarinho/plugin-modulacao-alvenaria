@@ -43,6 +43,30 @@ modulação) e a "arquitetura limpa" que o engenheiro extrai dele para modular (
 | Paredes 100% **ortogonais** (0° e 90°) | Facilita a detecção automática de paredes e encontros. |
 | Comprimentos das faces **não modulados** (a maioria termina em 0; muitos fracionados) | Parede por parede, quase tudo vai dar "não fecha". O comprimento real só sai com os **encontros** (fase 5), que viram a prioridade. |
 
+### Correções do engenheiro após o primeiro teste (v0.4.1)
+
+| # | Correção pedida | Como ficou |
+|---|---|---|
+| 1 | O 54 só no encontro em T | O 54 só entra na ponta da parede que atravessa um T (na fiada em que ela passa direto). Nunca em canto, X, nem no meio. |
+| 2 | Parede que acaba na porta acaba em 20 | **Interpretação:** a última peça junto à porta é o meio bloco (19, "20" com a junta). Vale nas duas fiadas; a junta ao lado desse 19 é igual nas duas (exceção ao "sem prumo"). Se não couber, relaxa com aviso. |
+| 3 | 54 e 19 não no meio da parede | 19 e 54 só nas pontas. |
+| 4 | Espaço de 5,5 cm entre blocos | Dentro da parede todas as peças já ficavam a 1 cm. O 5,5 vinha da **sobra** de trechos que não fecham, que ficava junto ao encontro (até 4,5 + 1 de junta). Agora a sobra vai para o lado da porta e as peças encostam sempre na outra parede. Além disso o plugin mede o bloco real do desenho e corrige a escala se ele não tiver o tamanho do catálogo. |
+| 5 | Priorizar o 39 | Custos 39 = 10; 34 = 40; 19 = 60; 9 = 80; 4 = 90. |
+| 6 | 34 em cantos; no meio só se preciso | 34 custa menos em canto (25) do que no meio (40), e é sempre a 2ª prioridade depois do 39. |
+| 7 | Bolacha nunca no canto | Bolacha (4 e 9) fora de ponta de porta, encontro e canto. |
+| 8 | Ler o tamanho das portas: vão + 11; janela: vão + 6 | Porta: tamanho da folha lido pelo **arco** (folha 130 → 141 na alvenaria, e não 151 como antes). Janela: tamanho do vidro + 6, centrada, e entra na cota. |
+
+**Medido na planta real:** as portas têm folha de 130 e 150 cm, com abertura de 140 e 160 cm na parede
+(a abertura já inclui o marco, folha + 10). Antes o plugin somava +11 em cima da abertura, deixando a
+alvenaria cerca de 10 cm mais larga do que o correto. O vidro das janelas tem exatamente o tamanho da
+abertura.
+
+**Pontos para o engenheiro confirmar:**
+1. Item 2: "acabar em 20" é o meio bloco (19) junto à porta, nas duas fiadas?
+2. Quando uma parede não fecha, vale ajustar a **posição da porta** em alguns centímetros (para a
+   alvenaria ficar modular)? Hoje o plugin só avisa e deixa a sobra do lado da porta.
+3. O 54 do T está na parede que atravessa (a "perpendicular"), certo?
+
 ### Respondido pelo engenheiro depois do questionário (v0.3)
 
 | Pergunta | Resposta | No código |

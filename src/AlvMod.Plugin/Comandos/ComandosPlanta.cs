@@ -66,8 +66,8 @@ namespace AlvMod.Plugin
                 var avisos = new List<string>();
                 var trechos = PlanejadorFiadas.Trechos(planta, 1, opF, avisos);
                 int fechados = ModularEDesenhar(doc, "ALVPLANTA", trechos, fator, desenhista,
-                    t => modulador.PrimeiraFiada(t.Comprimento, t.Bordas, t.Encontros));
-                if (cotar.Value) Cotar(desenhista, trechos, fator, ctx);
+                    t => modulador.PrimeiraFiada(t.Comprimento, t.Pontas));
+                if (cotar.Value) Cotar(desenhista, planta, trechos, fator, ctx, opF);
 
                 tr.Commit();
                 foreach (var a in avisos) Registro.Adicionar(doc, Gravidade.Aviso, "ALVPLANTA", null, a);
@@ -125,9 +125,9 @@ namespace AlvMod.Plugin
                 {
                     var arestas = PlanejadorFiadas.CentrosDeJunta(ArestasDaParede(pecas1, t.Parede), opF.Junta)
                         .Select(a => a - t.Inicio).ToList();
-                    return modulador.SegundaFiada(t.Comprimento, arestas, t.Bordas, t.Encontros);
+                    return modulador.SegundaFiada(t.Comprimento, arestas, t.Pontas);
                 });
-                if (cotar.Value) Cotar(desenhista, trechos, fator, ctx);
+                if (cotar.Value) Cotar(desenhista, planta, trechos, fator, ctx, opF);
                 ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
 
                 tr.Commit();
@@ -224,7 +224,8 @@ namespace AlvMod.Plugin
         {
             Largura = LarguraParede(ctx),
             Junta = ctx.Familia.Junta,
-            FolgaPorta = ctx.Config.FolgaPorta
+            FolgaPorta = ctx.Config.FolgaPorta,
+            FolgaJanela = ctx.Config.FolgaJanela
         };
 
         private static int ModularEDesenhar(Document doc, string comando, List<TrechoFiada> trechos, double fator,
@@ -236,7 +237,7 @@ namespace AlvMod.Plugin
                 var r = modular(t);
                 var geo = Geometrico(t, fator);
                 foreach (var p in r.Pecas) desenhista.Desenhar(geo, p);
-                if (r.Sucesso) { fechados++; continue; }
+                if (r.Sucesso) { fechados++; if (r.Avisos.Count == 0) continue; }
                 if (t.Comprimento < 19 && r.Pecas.Count == 0)
                     r.Mensagem = $"trecho de {t.Comprimento:0.#} cm (boneca junto a porta/encontro): resolver à mão. " + r.Mensagem;
                 Relatar(doc, comando, t.Nome, geo, r);
@@ -252,11 +253,25 @@ namespace AlvMod.Plugin
             return new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
         }
 
-        private static void Cotar(Desenhista desenhista, List<TrechoFiada> trechos, double fator, ContextoObra ctx)
+        /// <summary>
+        /// Cota corrida de cada parede, pela face: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
+        /// As janelas não cortam a fiada, mas entram na cota.
+        /// </summary>
+        private static void Cotar(Desenhista desenhista, PlantaDetectada planta, List<TrechoFiada> trechos, double fator,
+            ContextoObra ctx, OpcoesFiadas opF)
         {
-            foreach (var grupo in trechos.GroupBy(t => t.Parede))
-                desenhista.Cotar(grupo.OrderBy(t => t.Inicio).Select(t => Geometrico(t, fator)).ToList(),
-                    ctx.Config.Escala, LarguraParede(ctx));
+            foreach (var w in trechos.Select(t => t.Parede).Distinct())
+            {
+                var (x1, y1) = w.Ponto(w.Inicio);
+                var (x2, y2) = w.Ponto(w.Fim);
+                var referencia = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
+                var pontos = PlanejadorFiadas.PontosDeCota(w, trechos, opF).Select(t =>
+                {
+                    var (x, y) = w.Ponto(t);
+                    return new Point3d(x / fator, y / fator, 0);
+                }).ToList();
+                desenhista.CotarPontos(referencia, pontos, ctx.Config.Escala, LarguraParede(ctx));
+            }
         }
 
         private static void DesenharEixosENumeracao(Database db, Transaction tr, PlantaDetectada planta, double fator,
@@ -370,6 +385,8 @@ namespace AlvMod.Plugin
             if (d.BlocosProvisorios.Count > 0)
                 ed.WriteMessage("\n[AVISO] Blocos criados como retângulo provisório (não existiam no desenho): " +
                                 string.Join(", ", d.BlocosProvisorios));
+            foreach (var par in d.BlocosAjustados)
+                ed.WriteMessage($"\n[AVISO] Bloco {par.Key} {par.Value}: escala ajustada na inserção para as peças ficarem a 1 cm.");
             if (fechados < total)
                 ed.WriteMessage("\nTrechos que não fecharam estão no relatório: ALVRELATORIO.");
         }

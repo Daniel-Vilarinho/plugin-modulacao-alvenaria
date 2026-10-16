@@ -13,6 +13,11 @@ namespace AlvMod.Core.Planta
         public double X2 { get; set; }
         public double Y2 { get; set; }
 
+        /// <summary>Quando o segmento é corda de um arco: raio e centro do arco (cm). 0 = reta.</summary>
+        public double Raio { get; set; }
+        public double Cx { get; set; }
+        public double Cy { get; set; }
+
         public Segmento() { }
 
         public Segmento(string layer, double x1, double y1, double x2, double y2)
@@ -51,9 +56,30 @@ namespace AlvMod.Core.Planta
     public sealed class Vao
     {
         public TipoVao Tipo { get; set; }
+
+        /// <summary>Bordas da abertura desenhada pelo arquiteto na parede (inclui o marco).</summary>
         public double Inicio { get; set; }
         public double Fim { get; set; }
+
+        /// <summary>
+        /// Tamanho da esquadria lido do desenho (folha da porta pelo arco, vidro da janela), em cm.
+        /// 0 = não encontrado: usa-se a abertura desenhada.
+        /// </summary>
+        public double Tamanho { get; set; }
+
         public double Largura => Fim - Inicio;
+        public double Centro => (Inicio + Fim) / 2;
+        public bool TamanhoLido => Tamanho > 0;
+
+        /// <summary>
+        /// Abertura na alvenaria: tamanho da esquadria + folga de marco (porta +11, janela +6),
+        /// centrada no vão desenhado.
+        /// </summary>
+        public (double a, double b) Alvenaria(double folga)
+        {
+            double t = TamanhoLido ? Tamanho : Largura;
+            return (Centro - (t + folga) / 2, Centro + (t + folga) / 2);
+        }
     }
 
     /// <summary>

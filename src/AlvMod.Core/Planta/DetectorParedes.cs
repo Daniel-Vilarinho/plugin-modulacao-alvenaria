@@ -58,6 +58,7 @@ namespace AlvMod.Core.Planta
             var ctx = new ContextoVaos
             {
                 Portas = Pontos(lista, op.LayersPorta),
+                Arcos = lista.Where(s => s.Raio > 0 && op.LayersPorta.Contains(s.Layer ?? "")).ToList(),
                 Janelas = lista.Where(s => op.LayersJanela.Contains(s.Layer ?? "")).ToList(),
                 Rotulos = (rotulos ?? Enumerable.Empty<Rotulo>())
                     .Where(r => TipoPorRotulo(r.Texto).HasValue).ToList()
@@ -143,6 +144,7 @@ namespace AlvMod.Core.Planta
         private sealed class ContextoVaos
         {
             public List<(double x, double y)> Portas;
+            public List<Segmento> Arcos;
             public List<Segmento> Janelas;
             public List<Rotulo> Rotulos;
         }
@@ -187,7 +189,9 @@ namespace AlvMod.Core.Planta
                         else
                         {
                             var tv = tipo == Buraco.Porta ? TipoVao.Porta : tipo == Buraco.Janela ? TipoVao.Janela : TipoVao.Passagem;
-                            atual.Vaos.Add(new Vao { Tipo = tv, Inicio = ga, Fim = gb });
+                            double tamanho = tv == TipoVao.Porta ? TamanhoPorta(hor, c, esp, ga, gb, ctx)
+                                           : tv == TipoVao.Janela ? TamanhoJanela(hor, c, esp, ga, gb, ctx) : 0;
+                            atual.Vaos.Add(new Vao { Tipo = tv, Inicio = ga, Fim = gb, Tamanho = tamanho });
                             atual.Fim = Math.Max(atual.Fim, f.B);
                         }
                     }
@@ -252,6 +256,49 @@ namespace AlvMod.Core.Planta
             bool cruzaParede = perpendiculares.Any(p => p.C > ga && p.C < gb && p.A - esp <= c && c <= p.B + esp);
             if (gap <= op.PassagemMaxima && !cruzaParede) return Buraco.Passagem;
             return Buraco.Separa;
+        }
+
+        /// <summary>
+        /// Tamanho da porta = raio do arco de abertura da folha (a abertura desenhada na parede inclui o
+        /// marco: folha 130 → abertura 140). Folha dupla: soma dos raios dos dois arcos. 0 = sem arco.
+        /// </summary>
+        private static double TamanhoPorta(bool hor, double c, double esp, double ga, double gb, ContextoVaos ctx)
+        {
+            double gap = gb - ga;
+            var arcos = ctx.Arcos
+                .Where(a =>
+                {
+                    double ao = hor ? a.Cx : a.Cy, tr = hor ? a.Cy : a.Cx;
+                    return ao >= ga - 25 && ao <= gb + 25 && Math.Abs(tr - c) <= esp / 2 + 25 &&
+                           a.Raio >= gap * 0.4 && a.Raio <= gap + 20;
+                })
+                .GroupBy(a => (Math.Round((hor ? a.Cx : a.Cy) / 5), Math.Round((hor ? a.Cy : a.Cx) / 5), Math.Round(a.Raio)))
+                .Select(g => g.First())
+                .ToList();
+            if (arcos.Count == 0) return 0;
+
+            var maior = arcos.OrderByDescending(a => a.Raio).First();
+            double centroMaior = hor ? maior.Cx : maior.Cy;
+            var outro = arcos.Where(a => Math.Abs((hor ? a.Cx : a.Cy) - centroMaior) > gap * 0.5)
+                .OrderByDescending(a => a.Raio).FirstOrDefault();
+            return outro != null ? maior.Raio + outro.Raio : maior.Raio;
+        }
+
+        /// <summary>Tamanho da janela = maior linha do vidro/peitoril paralela à parede dentro do vão.</summary>
+        private static double TamanhoJanela(bool hor, double c, double esp, double ga, double gb, ContextoVaos ctx)
+        {
+            double gap = gb - ga, melhor = 0;
+            foreach (var s in ctx.Janelas)
+            {
+                bool paralela = hor ? Math.Abs(s.Y2 - s.Y1) <= 0.5 : Math.Abs(s.X2 - s.X1) <= 0.5;
+                double tr = hor ? (s.Y1 + s.Y2) / 2 : (s.X1 + s.X2) / 2;
+                if (!paralela || Math.Abs(tr - c) > esp / 2 + 2) continue;
+                double a = hor ? Math.Min(s.X1, s.X2) : Math.Min(s.Y1, s.Y2);
+                double b = hor ? Math.Max(s.X1, s.X2) : Math.Max(s.Y1, s.Y2);
+                if (a < ga - 5 || b > gb + 5) continue;
+                melhor = Math.Max(melhor, b - a);
+            }
+            return melhor >= gap * 0.5 ? melhor : 0;
         }
 
         /// <summary>Convenção dos projetos: P1, P2… = porta; J1, J2… = janela.</summary>

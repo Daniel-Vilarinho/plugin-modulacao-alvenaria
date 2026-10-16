@@ -15,7 +15,7 @@ namespace AlvMod.Core.Catalogo
         public const string Concreto39 = "CONCRETO-39";
 
         /// <summary>Sobe quando os padrões mudam, para migrar catálogos já gravados (ver <see cref="Migrar"/>).</summary>
-        public const int VersaoAtual = 3;
+        public const int VersaoAtual = 4;
 
         public static CatalogoBlocos Criar() => new CatalogoBlocos
         {
@@ -30,12 +30,15 @@ namespace AlvMod.Core.Catalogo
             Junta = 1,
             Pecas = new List<Peca>
             {
+                // Custos = ordem de prioridade do motor: 39 primeiro (o mais barato), 34 em segundo, bolachas por último.
+                // O 19 só entra nas pontas (obrigatório junto à porta) e o 54 só no encontro em T: nesses lugares
+                // o motor os trata como um 39.
                 Nova(39, FuncaoPeca.Principal, 10, cor: 74),
-                Nova(19, FuncaoPeca.Meio, 12, cor: 204),
-                Nova(54, FuncaoPeca.Encontro, 14, cor: 30), // o motor só usa na ponta que chega num encontro
-                Nova(34, FuncaoPeca.Amarracao, 20, cor: 170),
-                Nova(9, FuncaoPeca.Compensador, 22, cor: 8, grauteavel: false),
-                Nova(4, FuncaoPeca.Compensador, 24, cor: 8, grauteavel: false),
+                Nova(19, FuncaoPeca.Meio, 60, cor: 204),
+                Nova(54, FuncaoPeca.Encontro, 10, cor: 30),
+                Nova(34, FuncaoPeca.Amarracao, 40, cor: 170),
+                Nova(9, FuncaoPeca.Compensador, 80, cor: 8, grauteavel: false),
+                Nova(4, FuncaoPeca.Compensador, 90, cor: 8, grauteavel: false),
             }
         };
 
@@ -69,6 +72,17 @@ namespace AlvMod.Core.Catalogo
             // v3: o 54 deixa de ser desligado; o motor passa a usá-lo só nas pontas em encontro.
             foreach (var p in catalogo.Familias.SelectMany(f => f.Pecas))
                 if (p.Funcao == FuncaoPeca.Encontro && p.NomeBlocoDwg == "P-Bloco54") p.Habilitada = true;
+
+            // v4: nova escala de prioridades. Só troca o custo de quem ainda está com o valor padrão antigo.
+            var antigos = new Dictionary<string, (int antigo, int novo)>
+            {
+                ["39"] = (10, 10), ["19"] = (12, 60), ["54"] = (14, 10),
+                ["34"] = (20, 40), ["9"] = (22, 80), ["4"] = (24, 90)
+            };
+            foreach (var f in catalogo.Familias)
+                foreach (var p in f.Pecas)
+                    if (p.Codigo != null && antigos.TryGetValue(p.Codigo, out var c) && p.Custo == c.antigo)
+                        p.Custo = c.novo;
 
             catalogo.VersaoPadrao = VersaoAtual;
             return true;

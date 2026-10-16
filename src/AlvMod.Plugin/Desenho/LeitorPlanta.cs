@@ -46,8 +46,8 @@ namespace AlvMod.Plugin.Desenho
                         {
                             var arco = pl.GetArcSegmentAt(i);
                             var meio = arco.EvaluatePoint((arco.GetParameterOf(arco.StartPoint) + arco.GetParameterOf(arco.EndPoint)) / 2);
-                            Adicionar(layer, arco.StartPoint, meio);
-                            Adicionar(layer, meio, arco.EndPoint);
+                            Adicionar(layer, arco.StartPoint, meio, arco.Radius, arco.Center);
+                            Adicionar(layer, meio, arco.EndPoint, arco.Radius, arco.Center);
                         }
                         else
                         {
@@ -58,8 +58,8 @@ namespace AlvMod.Plugin.Desenho
                     break;
                 case Arc a:
                     var pm = a.GetPointAtParameter((a.StartParam + a.EndParam) / 2);
-                    Adicionar(layer, a.StartPoint, pm);
-                    Adicionar(layer, pm, a.EndPoint);
+                    Adicionar(layer, a.StartPoint, pm, a.Radius, a.Center);   // o raio do arco da porta = tamanho da folha
+                    Adicionar(layer, pm, a.EndPoint, a.Radius, a.Center);
                     break;
                 case DBText t:
                     Rotulos.Add(new Rotulo(t.TextString, t.Position.X * _fator, t.Position.Y * _fator));
@@ -89,7 +89,12 @@ namespace AlvMod.Plugin.Desenho
             }
         }
 
-        private void Adicionar(string layer, Point3d a, Point3d b) =>
-            Segmentos.Add(new Segmento(layer, a.X * _fator, a.Y * _fator, b.X * _fator, b.Y * _fator));
+        private void Adicionar(string layer, Point3d a, Point3d b, double raio = 0, Point3d centro = default) =>
+            Segmentos.Add(new Segmento(layer, a.X * _fator, a.Y * _fator, b.X * _fator, b.Y * _fator)
+            {
+                Raio = raio * _fator,
+                Cx = centro.X * _fator,
+                Cy = centro.Y * _fator
+            });
     }
 }
