@@ -33,9 +33,13 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças
    que a construtora **não** usa e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
    esquecer, o `ALV1FIADA` pergunta na primeira vez.
-2. **`ALV1FIADA`**: pergunta a unidade e a escala, pede o eixo da parede (ou as duas faces, com a
-   opção `Faces`) e os outros segmentos se a parede for cortada por porta. Para cada vão entre os
-   segmentos, pergunta se é **porta, janela ou passagem**. Depois desenha a 1ª fiada e as cotas.
+2. **`ALV1FIADA`**: pergunta a unidade (arquitetura em metros = `100`) e a escala. Depois pede a
+   parede **por pontos**, com OSNAP: o **início** e o **fim** numa face, e **um ponto na face
+   oposta**. O plugin calcula o eixo, então funciona com a parede em linha dupla, dentro do bloco
+   da arquitetura e atravessando janelas. Se a parede for cortada por porta, pede o próximo segmento
+   (Enter na face oposta reaproveita a espessura) e pergunta se cada vão é **porta, janela ou
+   passagem**. Por fim, desenha a 1ª fiada e as cotas. As opções `Eixo` e `Faces` permitem clicar
+   linhas em vez de pontos, inclusive dentro de blocos.
 3. Confira e edite a 1ª fiada à mão, se precisar.
 4. **`ALV2FIADA`**: pede o eixo, o que existe em cada ponta (parede, porta, janela ou passagem) e as
    peças da 1ª fiada **como estão desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
@@ -94,7 +98,9 @@ Catálogos criados pela v0.2 (com os nomes provisórios) são corrigidos sozinho
 ### Limitações atuais
 
 - Paredes retas, uma por vez. Ainda não trata encontros L/T/X nem identifica portas e janelas sozinho
-  (os segmentos selecionados indicam onde estão os vãos).
+  (os segmentos selecionados indicam onde estão os vãos). Como a arquitetura não vem modulada, muitas
+  paredes isoladas vão dar "não fecha" até a fase de encontros, que é onde o comprimento real de
+  cada parede é definido.
 - Ainda não numera as paredes nem gera elevações.
 
 ---

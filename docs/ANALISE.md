@@ -26,6 +26,23 @@ engenheiro antes da fase correspondente.
 | — | Relatório de inconsistências em docx/pdf (q. 50) | `ALVRELATORIO` gera .docx. |
 | — | Sempre pedir a escala (q. 37, 41) | Unidade e escala perguntadas em toda modulação (padrão = última usada na obra). |
 
+### O que os DWG reais mostraram (arquitetura original + arquitetura limpa)
+
+Arquivos: o projeto completo do arquiteto (implantação, cortes, plantas, 148 layers, sem
+modulação) e a "arquitetura limpa" que o engenheiro extrai dele para modular (um pavimento tipo,
+4 apartamentos espelhados). Os arquivos **não** foram colocados no repositório, que é público.
+
+| Achado na arquitetura limpa | Consequência para o plugin |
+|---|---|
+| Tudo dentro de **um bloco** (`ARQUITETURA`) | Clicar numa linha selecionava o bloco inteiro. **Corrigido:** seleção dentro de blocos e modo por pontos. |
+| Cabeçalho diz **mm**, desenho está em **metros** (39 × 30) | Confirma: sempre perguntar a unidade (aqui, `100`). |
+| Paredes em **linha dupla** (faces) a **15 e 30 cm**, sem eixo; layer `Alvenaria` | Modo padrão agora é **por pontos** (início/fim numa face + face oposta), e o eixo é calculado. |
+| Faces **quebradas** em cada encontro e janela | Selecionar objeto pega só um pedaço. Os pontos atravessam as quebras. |
+| Janelas: parede interrompida no desenho, com linhas de **peitoril** (`Arq_Peitoril`) e **vidro** (`Arq_Esq_Vidro`) | Na 1ª e 2ª fiada a parede **continua** sob a janela: o usuário seleciona a parede inteira. |
+| Portas: **linhas e arcos soltos** no layer `Portas` (não são blocos), rótulos P1/P2/P3 | A detecção automática (fase 4) vai ter que achar vãos pelas quebras das faces + layer `Portas`. |
+| Paredes 100% **ortogonais** (0° e 90°) | Facilita a detecção automática de paredes e encontros. |
+| Comprimentos das faces **não modulados** (a maioria termina em 0; muitos fracionados) | Parede por parede, quase tudo vai dar "não fecha". O comprimento real só sai com os **encontros** (fase 5), que viram a prioridade. |
+
 ### Respondido pelo engenheiro depois do questionário (v0.3)
 
 | Pergunta | Resposta | No código |

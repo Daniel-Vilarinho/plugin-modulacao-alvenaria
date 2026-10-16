@@ -32,10 +32,11 @@ namespace AlvMod.Plugin
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
                 var trechos = new List<Trecho>();
+                Vector3d? espessura = null; // reaproveitada nos segmentos seguintes da mesma parede
                 while (true)
                 {
                     var t = Geometria.SelecionarTrecho(ed, tr,
-                        trechos.Count == 0 ? "\nSelecione o eixo da parede" : "\nSelecione o próximo segmento da mesma parede");
+                        trechos.Count == 0 ? "\nParede" : "\nPróximo segmento da mesma parede", ref espessura);
                     if (t == null) break;
                     trechos.Add(t.Normalizado());
                     var outro = Perguntas.SimNao(ed, "\nHá outro segmento desta parede (cortada por porta)?", false);
@@ -96,7 +97,8 @@ namespace AlvMod.Plugin
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                var trecho = Geometria.SelecionarTrecho(ed, tr, "\nSelecione o eixo do trecho na planta da 1ª fiada")?.Normalizado();
+                Vector3d? espessura = null;
+                var trecho = Geometria.SelecionarTrecho(ed, tr, "\nTrecho na planta da 1ª fiada", ref espessura)?.Normalizado();
                 if (trecho == null) return;
 
                 // Pontas em porta/janela: encolhe pela folga de marco e proíbe compensador encostado no vão.

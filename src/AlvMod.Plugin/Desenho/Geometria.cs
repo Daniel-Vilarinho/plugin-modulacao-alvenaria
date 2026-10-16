@@ -59,23 +59,59 @@ namespace AlvMod.Plugin.Desenho
     internal static class Geometria
     {
         /// <summary>
-        /// Pede o eixo da parede (LINE ou segmento reto de POLYLINE) ou, com a opção Faces, as duas faces
-        /// paralelas — nesse caso o eixo é a linha média entre elas.
+        /// Pede a parede. Padrão (arquitetura real: paredes em linha dupla, sem eixo, dentro de bloco):
+        /// dois pontos numa face (início e fim, com OSNAP) e um ponto na face oposta; o eixo é a linha
+        /// média. Opções: Eixo (clicar uma linha de eixo) ou Faces (clicar as duas linhas de face).
+        /// Linhas dentro de blocos (ex.: bloco ARQUITETURA) podem ser clicadas diretamente.
         /// </summary>
-        public static Trecho SelecionarTrecho(Editor ed, Transaction tr, string mensagem)
+        /// <param name="espessura">
+        /// Vetor da face clicada até o eixo, lembrado entre segmentos da mesma parede (Enter reaproveita).
+        /// </param>
+        public static Trecho SelecionarTrecho(Editor ed, Transaction tr, string mensagem, ref Vector3d? espessura)
         {
-            var opcoes = new PromptEntityOptions(mensagem + " [Faces]: ");
-            opcoes.Keywords.Add("Faces");
-            opcoes.AppendKeywordsToMessage = false;
-            opcoes.AllowNone = true;
-            opcoes.SetRejectMessage("\nSelecione uma LINE ou POLYLINE.");
-            opcoes.AddAllowedClass(typeof(Line), true);
-            opcoes.AddAllowedClass(typeof(Polyline), true);
+            var o = new PromptPointOptions(mensagem + ": início da parede, numa face [Eixo/Faces]: ");
+            o.Keywords.Add("Eixo");
+            o.Keywords.Add("Faces");
+            o.AppendKeywordsToMessage = false;
+            o.AllowNone = true;
 
-            var res = ed.GetEntity(opcoes);
-            if (res.Status == PromptStatus.Keyword) return SelecionarPorFaces(ed, tr);
-            if (res.Status != PromptStatus.OK) return null;
-            return SegmentoDe(ed, tr, res);
+            var r = ed.GetPoint(o);
+            if (r.Status == PromptStatus.Keyword)
+                return r.StringResult == "Eixo"
+                    ? SelecionarSegmento(ed, tr, "\nSelecione a linha do eixo da parede: ")
+                    : SelecionarPorFaces(ed, tr);
+            if (r.Status != PromptStatus.OK) return null;
+
+            var ucs = ed.CurrentUserCoordinateSystem;
+            var a = r.Value.TransformBy(ucs);
+            var rb = ed.GetPoint(new PromptPointOptions("\nFim da parede, na mesma face: ") { BasePoint = r.Value, UseBasePoint = true });
+            if (rb.Status != PromptStatus.OK) return null;
+            var b = rb.Value.TransformBy(ucs);
+            if (a.DistanceTo(b) < 1e-6) return null;
+
+            var face = new Trecho(a, b);
+            var oc = new PromptPointOptions(espessura.HasValue
+                ? "\nUm ponto na face oposta <mesma espessura do segmento anterior>: "
+                : "\nUm ponto na face oposta: ")
+            {
+                BasePoint = rb.Value,
+                UseBasePoint = true,
+                AllowNone = espessura.HasValue
+            };
+            var rc = ed.GetPoint(oc);
+            if (rc.Status == PromptStatus.OK)
+            {
+                face.Projetar(rc.Value.TransformBy(ucs), out _, out double d);
+                espessura = face.Perpendicular * (d / 2);
+                ed.WriteMessage(string.Format(CultureInfo.InvariantCulture,
+                    "\nEspessura da parede no desenho: {0:0.###} unidades.", Math.Abs(d)));
+            }
+            else if (rc.Status != PromptStatus.None || !espessura.HasValue)
+            {
+                return null;
+            }
+
+            return new Trecho(a + espessura.Value, b + espessura.Value);
         }
 
         private static Trecho SelecionarPorFaces(Editor ed, Transaction tr)
@@ -99,28 +135,28 @@ namespace AlvMod.Plugin.Desenho
             var meioB = b + (reta2.GetClosestPointTo(b).Point - b) / 2;
             double espessura = a.DistanceTo(reta2.GetClosestPointTo(a).Point);
             ed.WriteMessage(string.Format(CultureInfo.InvariantCulture,
-                "\nEixo calculado entre as faces (espessura {0:0.##} unidades).", espessura));
+                "\nEixo calculado entre as faces (espessura {0:0.###} unidades).", espessura));
             return new Trecho(meioA, meioB);
         }
 
+        /// <summary>LINE ou segmento reto de POLYLINE, inclusive dentro de blocos (seleção aninhada).</summary>
         private static Trecho SelecionarSegmento(Editor ed, Transaction tr, string mensagem)
         {
-            var opcoes = new PromptEntityOptions(mensagem);
-            opcoes.SetRejectMessage("\nSelecione uma LINE ou POLYLINE.");
-            opcoes.AddAllowedClass(typeof(Line), true);
-            opcoes.AddAllowedClass(typeof(Polyline), true);
-            var res = ed.GetEntity(opcoes);
-            return res.Status == PromptStatus.OK ? SegmentoDe(ed, tr, res) : null;
-        }
+            var res = ed.GetNestedEntity(new PromptNestedEntityOptions(mensagem));
+            if (res.Status != PromptStatus.OK) return null;
 
-        private static Trecho SegmentoDe(Editor ed, Transaction tr, PromptEntityResult res)
-        {
             var ent = (Entity)tr.GetObject(res.ObjectId, OpenMode.ForRead);
+            var paraDesenho = res.Transform; // coordenadas do bloco → coordenadas do desenho
             if (ent is Line linha)
-                return new Trecho(linha.StartPoint, linha.EndPoint);
+                return new Trecho(linha.StartPoint.TransformBy(paraDesenho), linha.EndPoint.TransformBy(paraDesenho));
 
-            var pl = (Polyline)ent;
-            var clique = res.PickedPoint.TransformBy(ed.CurrentUserCoordinateSystem);
+            if (!(ent is Polyline pl))
+            {
+                ed.WriteMessage("\nSelecione uma LINE ou POLYLINE.");
+                return null;
+            }
+
+            var clique = res.PickedPoint.TransformBy(ed.CurrentUserCoordinateSystem).TransformBy(paraDesenho.Inverse());
             var maisProximo = pl.GetClosestPointTo(clique, Vector3d.ZAxis, false);
             int segmentos = pl.Closed ? pl.NumberOfVertices : pl.NumberOfVertices - 1;
             int i = Math.Min(Math.Max((int)Math.Floor(pl.GetParameterAtPoint(maisProximo)), 0), segmentos - 1);
@@ -133,7 +169,7 @@ namespace AlvMod.Plugin.Desenho
             var seg = pl.GetLineSegmentAt(i);
             if (segmentos > 1)
                 ed.WriteMessage($"\nPolilinha com {segmentos} segmentos: usando o segmento {i + 1}, o mais próximo do clique.");
-            return new Trecho(seg.StartPoint, seg.EndPoint);
+            return new Trecho(seg.StartPoint.TransformBy(paraDesenho), seg.EndPoint.TransformBy(paraDesenho));
         }
 
         /// <summary>Cantos de uma peça desenhada (bloco DWG ou retângulo POLYLINE), em coordenadas do desenho.</summary>
