@@ -3,6 +3,17 @@ using System.Runtime.Serialization;
 
 namespace AlvMod.Core.Catalogo
 {
+    /// <summary>O que existe no vão ao lado de um trecho de parede.</summary>
+    public enum TipoAbertura
+    {
+        /// <summary>Não é vão: a parede continua ou termina ali.</summary>
+        Parede,
+        Porta,
+        Janela,
+        /// <summary>Vão sem esquadria (não soma folga de marco).</summary>
+        Passagem
+    }
+
     /// <summary>
     /// Configuração da obra, gravada DENTRO do DWG: quem abrir o arquivo em outra máquina usa a mesma.
     /// </summary>
@@ -26,6 +37,12 @@ namespace AlvMod.Core.Catalogo
         /// <summary>Preço unitário por código de peça, quando a construtora informa.</summary>
         [DataMember(Name = "precos", Order = 6)] public Dictionary<string, double> Precos { get; set; } = new Dictionary<string, double>();
 
+        /// <summary>Folga de marco somada ao vão da arquitetura nas portas (cm, total dos dois lados).</summary>
+        [DataMember(Name = "folgaPorta", Order = 7)] public double FolgaPorta { get; set; } = 11;
+
+        /// <summary>Folga de marco somada ao vão da arquitetura nas janelas (cm, total dos dois lados).</summary>
+        [DataMember(Name = "folgaJanela", Order = 8)] public double FolgaJanela { get; set; } = 6;
+
         [OnDeserializing]
         private void AntesDeLer(StreamingContext _)
         {
@@ -33,7 +50,20 @@ namespace AlvMod.Core.Catalogo
             FatorCm = 1;
             Escala = 50;
             Precos = new Dictionary<string, double>();
+            FolgaPorta = 11;
+            FolgaJanela = 6;
         }
+
+        /// <summary>
+        /// Quanto cada parede ao lado do vão encolhe (cm): metade da folga de marco, porque o vão da
+        /// alvenaria é o vão da arquitetura + folga (porta +11, janela +6), dividida entre os dois lados.
+        /// </summary>
+        public double RecuoPorLado(TipoAbertura tipo) => tipo switch
+        {
+            TipoAbertura.Porta => FolgaPorta / 2,
+            TipoAbertura.Janela => FolgaJanela / 2,
+            _ => 0
+        };
 
         public bool Configurada => !string.IsNullOrEmpty(Familia);
     }

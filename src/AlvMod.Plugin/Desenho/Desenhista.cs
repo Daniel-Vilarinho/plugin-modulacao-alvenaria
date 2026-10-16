@@ -62,11 +62,12 @@ namespace AlvMod.Plugin.Desenho
         }
 
         /// <summary>
-        /// Cotas alinhadas em cadeia ao longo da parede: cada trecho de alvenaria e cada vão entre eles
+        /// Cotas alinhadas em cadeia ao longo da face da parede: cada trecho de alvenaria e cada vão entre eles
         /// (parede até o início do vão, o vão inteiro, do vão até o fim da parede — questionário, item 47).
         /// </summary>
         /// <param name="escala">Denominador da escala de impressão (50 para 1:50).</param>
-        public int Cotar(IList<Trecho> trechos, double escala)
+        /// <param name="larguraCm">Largura da parede: as cotas medem pela face, não pelo eixo.</param>
+        public int Cotar(IList<Trecho> trechos, double escala, double larguraCm)
         {
             if (trechos.Count == 0) return 0;
             var refT = trechos[0];
@@ -79,6 +80,7 @@ namespace AlvMod.Plugin.Desenho
             // Tamanhos pensados em papel (mm) e convertidos para o desenho: dimscale = escala / (10 × fator).
             double dimscale = escala / (10.0 * _fator);
             double afastamento = 8.0 * dimscale; // 8 mm no papel, abaixo/à direita da parede
+            var face = -refT.Perpendicular * (larguraCm / 2.0 / _fator); // face do lado da cota
             var lado = -refT.Perpendicular * afastamento;
             string layer = GarantirLayer(LayerCotas, 2);
 
@@ -86,8 +88,8 @@ namespace AlvMod.Plugin.Desenho
             for (int i = 0; i + 1 < pontos.Count; i++)
             {
                 if (pontos[i].DistanceTo(pontos[i + 1]) < 1e-6) continue;
-                var p1 = pontos[i] + _deslocamento;
-                var p2 = pontos[i + 1] + _deslocamento;
+                var p1 = pontos[i] + face + _deslocamento;
+                var p2 = pontos[i + 1] + face + _deslocamento;
                 var cota = new AlignedDimension(p1, p2, p1 + lado, "", _db.Dimstyle)
                 {
                     Layer = layer,

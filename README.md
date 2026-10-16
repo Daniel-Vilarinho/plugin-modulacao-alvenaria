@@ -30,15 +30,15 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 
 ## Fluxo de trabalho
 
-1. **`ALVOBRA`**: escolhe a família da obra (concreto 39, cerâmico 39 ou outra cadastrada), as peças
+1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças
    que a construtora **não** usa e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
    esquecer, o `ALV1FIADA` pergunta na primeira vez.
 2. **`ALV1FIADA`**: pergunta a unidade e a escala, pede o eixo da parede (ou as duas faces, com a
-   opção `Faces`) e os outros segmentos se a parede for cortada por porta. Depois desenha a 1ª fiada e
-   as cotas.
+   opção `Faces`) e os outros segmentos se a parede for cortada por porta. Para cada vão entre os
+   segmentos, pergunta se é **porta, janela ou passagem**. Depois desenha a 1ª fiada e as cotas.
 3. Confira e edite a 1ª fiada à mão, se precisar.
-4. **`ALV2FIADA`**: pede o eixo, as pontas em abertura e as peças da 1ª fiada **como estão
-   desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
+4. **`ALV2FIADA`**: pede o eixo, o que existe em cada ponta (parede, porta, janela ou passagem) e as
+   peças da 1ª fiada **como estão desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
    desenha a 2ª fiada lá, com cotas. Na próxima parede, basta dar Enter para usar o mesmo deslocamento.
 5. **`ALVQUANT`**: quantitativo de blocos em CSV, que abre no Excel, com total em R$ se houver preços.
 6. **`ALVRELATORIO`**: relatório .docx com todas as paredes que não fecharam, para conferir e editar.
@@ -60,6 +60,10 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 - Prioridade: **máximo de blocos de 39**, depois **poucos compensadores**, e evitar paredes cheias de
   bloco de 34 (custos: 39 = 10, 19 = 12, 34 = 20, 9 = 22, 4 = 24; ajustáveis no `ALVCATALOGO`).
 - **Nunca usa compensador encostado em porta/janela.**
+- **Folga de marco:** o vão da alvenaria é o vão da arquitetura **+11 cm na porta** e **+6 cm na
+  janela** (metade de cada lado). Passagem sem esquadria não soma folga. Os valores ficam na obra
+  (`folgaPorta`/`folgaJanela`).
+- **Cotas pela face da parede**, em cadeia: parede até o vão, o vão (já com a folga), do vão até o fim.
 - 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**; junta a
   prumo nunca é desenhada.
 - Parede que não fecha: as peças são colocadas a partir do início do trecho (ponta esquerda/inferior),
@@ -68,13 +72,24 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 
 ### Blocos e layers
 
-Cada peça é inserida como **bloco** com nome, layer e cor do catálogo (padrão: `P-39X14X19` no layer
-`BLOCO 14X39`). O plugin assume o ponto base no **canto inferior esquerdo** e o bloco desenhado em
+Cada peça é inserida como **bloco** com nome, layer e cor do padrão do escritório:
+
+| Bloco | Layer | Cor |
+|---|---|---|
+| `P-Bloco39` | `P-Bloco 14x39` | 74 |
+| `P-Bloco34` | `P-Bloco 14x34` | 170 |
+| `P-Bloco19` | `P-Bloco 14x19` | 204 |
+| `P-Bloco54` | `P-Bloco 14x54` | 30 |
+| `P-Bloco9` | `P-Bloco 14x9` | 8 |
+| `P-Bloco4` | `P-Bloco 14x4` | 8 |
+
+Entre um bloco e outro fica 1 cm de junta (argamassa). O plugin assume o ponto base no **canto inferior esquerdo** e o bloco desenhado em
 **cm**. Se o bloco não existir no desenho, cria um bloco provisório (retângulo) com o mesmo nome; ao
 inserir a biblioteca real, os provisórios são substituídos. Layers que já existem mantêm a cor do
 escritório.
 
 O catálogo fica em `%APPDATA%\AlvMod\catalogo.json` e pode ser editado pelo `ALVCATALOGO` ou à mão.
+Catálogos criados pela v0.2 (com os nomes provisórios) são corrigidos sozinhos para esse padrão.
 
 ### Limitações atuais
 

@@ -26,21 +26,23 @@ engenheiro antes da fase correspondente.
 | — | Relatório de inconsistências em docx/pdf (q. 50) | `ALVRELATORIO` gera .docx. |
 | — | Sempre pedir a escala (q. 37, 41) | Unidade e escala perguntadas em toda modulação (padrão = última usada na obra). |
 
-### Ainda em aberto (perguntar ao engenheiro)
+### Respondido pelo engenheiro depois do questionário (v0.3)
 
-1. **Nomes dos blocos:** o questionário diz `P-39X14X19` (q. 53), mas o arquivo de referência
-   (J Soares) usado no protótipo tinha `P-Bloco39`. A v0.2 usa o padrão do questionário. Qual é o
-   certo? E qual é a **legenda de layers e cores** (q. 45)?
-2. **Nomes dos blocos cerâmicos:** foram supostos `P-CER-39X14X19` etc. Quais são os reais?
-3. **Ponto base dos blocos:** é o canto inferior esquerdo, com o bloco desenhado em cm?
-4. **Folga de marco** (q. 30: porta = vão + 11, janela = vão + 6): o vão da polilinha da arquitetura
-   já é o vão final da alvenaria, ou o plugin deve aumentá-lo (5,5 cm de cada lado na porta)? Hoje
-   o plugin não altera.
-5. **Cota "de parede interna"** (q. 47): hoje as cotas são medidas no eixo. Devem ir para a face?
-6. **NETLOAD (q. 64) × carregamento automático:** a atualização dentro do plugin (q. 73) exige o
+| Pergunta | Resposta | No código |
+|---|---|---|
+| Nomes dos blocos | `P-Bloco39`, `P-Bloco34`, `P-Bloco19`, `P-Bloco54`, `P-Bloco4`, `P-Bloco9` (P = planta) | Catálogo padrão com esses nomes; layers `P-Bloco 14x39`… com as cores da legenda (74, 170, 204, 30, 8, 8). |
+| Blocos cerâmicos | Não existem, só concreto | Família cerâmica removida do padrão (dá para cadastrar pelo `ALVCATALOGO` se um dia precisar). |
+| Ponto base | Canto inferior esquerdo | Mantido. |
+| Folga de marco | Porta = vão + 11; janela = vão + 6, entra no tamanho da parede | Cada parede ao lado do vão encolhe metade da folga; o comando pergunta porta/janela/passagem. |
+| Cotas | Pelas faces (as paredes vão ser encaixadas) | Cotas na face. Em parede isolada a medida é igual à do eixo; nos encontros L/T/X a diferença aparece. |
+
+### Ainda em aberto
+
+1. **NETLOAD (q. 64) × carregamento automático:** a atualização dentro do plugin (q. 73) exige o
    carregamento automático, então ele foi mantido. Tudo bem?
-7. **Arquivos a enviar (q. 43):** a arquitetura **sem** modulação + o **mesmo pavimento modulado à
-   mão** (1ª e 2ª fiada) + as elevações. Assim dá para comparar o resultado do plugin com o manual.
+2. **Arquivos reais (q. 43):** a arquitetura **sem** modulação + o **mesmo pavimento modulado à mão**
+   (1ª e 2ª fiada) + as elevações. São necessários para os encontros de parede e o pavimento inteiro.
+3. **Canaletas (verga/contraverga):** nomes dos blocos para a fase das elevações.
 
 ---
 

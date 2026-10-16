@@ -46,6 +46,12 @@ namespace AlvMod.Plugin.Desenho
 
         public Point3d PontoEm(double distancia) => Inicio + Direcao * distancia;
 
+        /// <summary>Trecho encolhido nas pontas (cm), para abrir espaço à folga de marco das aberturas.</summary>
+        public Trecho Encolher(double inicioCm, double fimCm, double fatorCm) =>
+            inicioCm <= 0 && fimCm <= 0
+                ? this
+                : new Trecho(PontoEm(inicioCm / fatorCm), PontoEm(Comprimento - fimCm / fatorCm));
+
         public string Descrever() => string.Format(CultureInfo.InvariantCulture,
             "de ({0:0.##}, {1:0.##}) a ({2:0.##}, {3:0.##})", Inicio.X, Inicio.Y, Fim.X, Fim.Y);
     }

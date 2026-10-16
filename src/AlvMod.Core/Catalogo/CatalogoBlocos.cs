@@ -12,6 +12,9 @@ namespace AlvMod.Core.Catalogo
     [DataContract]
     public sealed class CatalogoBlocos
     {
+        /// <summary>Versão dos padrões com que o arquivo foi criado/migrado (0 = anterior ao controle).</summary>
+        [DataMember(Name = "versaoPadrao", Order = 0)] public int VersaoPadrao { get; set; }
+
         [DataMember(Name = "familias", Order = 1)] public List<Familia> Familias { get; set; } = new List<Familia>();
 
         [OnDeserializing]
@@ -32,7 +35,9 @@ namespace AlvMod.Core.Catalogo
                 padrao.Salvar(caminho);
                 return padrao;
             }
-            return Json.Ler<CatalogoBlocos>(File.ReadAllBytes(caminho));
+            var catalogo = Json.Ler<CatalogoBlocos>(File.ReadAllBytes(caminho));
+            if (CatalogoPadrao.Migrar(catalogo)) catalogo.Salvar(caminho);
+            return catalogo;
         }
 
         public void Salvar(string caminho)

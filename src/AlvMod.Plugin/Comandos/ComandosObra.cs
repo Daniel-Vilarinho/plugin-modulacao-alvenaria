@@ -208,10 +208,10 @@ namespace AlvMod.Plugin
             p.Altura = alt.Value;
             p.Funcao = (FuncaoPeca)Enum.Parse(typeof(FuncaoPeca), funcao);
 
-            string sufixoDim = $"{p.Comprimento}X{p.Largura}X{p.Altura}";
-            var bloco = Perguntas.Texto(ed, "\nNome do bloco DWG em planta", nova ? $"P-{sufixoDim}" : p.NomeBlocoDwg);
+            // Padrão do escritório: bloco P-Bloco39 no layer "P-Bloco 14x39".
+            var bloco = Perguntas.Texto(ed, "\nNome do bloco DWG em planta", nova ? $"P-Bloco{p.Comprimento}" : p.NomeBlocoDwg);
             if (bloco == null) return false;
-            var layer = Perguntas.Texto(ed, "\nLayer", nova ? $"BLOCO {p.Largura}X{p.Comprimento}" : p.Layer);
+            var layer = Perguntas.Texto(ed, "\nLayer", nova ? $"P-Bloco {p.Largura}x{p.Comprimento}" : p.Layer);
             if (layer == null) return false;
             var cor = Perguntas.Inteiro(ed, "\nCor do layer (1–255)", nova ? 7 : p.Cor, 1);
             if (cor == null) return false;
@@ -257,7 +257,7 @@ namespace AlvMod.Plugin
 
         private static bool NovaFamilia(Editor ed, CatalogoBlocos catalogo)
         {
-            var nome = Perguntas.Texto(ed, "\nNome da nova família (ex.: CONCRETO-29)");
+            var nome = Perguntas.Texto(ed, "\nNome da nova família (ex.: CONCRETO-29, CERAMICO-39)");
             if (string.IsNullOrEmpty(nome)) return false;
             if (catalogo.Buscar(nome) != null) { ed.WriteMessage("\nJá existe uma família com esse nome."); return false; }
             var material = Perguntas.Opcao(ed, "\nMaterial [Concreto/Ceramico]", new[] { "Concreto", "Ceramico" }, "Concreto");

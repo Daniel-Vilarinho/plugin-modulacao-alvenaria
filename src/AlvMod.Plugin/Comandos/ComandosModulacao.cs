@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using AlvMod.Core.Catalogo;
 using AlvMod.Core.Modulacao;
 using AlvMod.Core.Saidas;
 using AlvMod.Plugin.Desenho;
@@ -42,9 +43,22 @@ namespace AlvMod.Plugin
                 }
                 if (trechos.Count == 0) return;
 
-                // Segmentos em ordem ao longo da parede; as pontas entre eles são vãos de abertura.
+                // Segmentos em ordem ao longo da parede; entre eles ficam os vãos das aberturas.
                 var refT = trechos[0];
                 trechos = trechos.OrderBy(t => (t.Inicio - refT.Inicio).DotProduct(refT.Direcao)).ToList();
+
+                // Vão da alvenaria = vão da arquitetura + folga de marco (porta +11, janela +6), meio de cada lado.
+                var recuoInicio = new double[trechos.Count];
+                var recuoFim = new double[trechos.Count];
+                for (int i = 0; i + 1 < trechos.Count; i++)
+                {
+                    var tipo = PerguntarAbertura(ed, $"\nO vão {i + 1} (entre os segmentos {i + 1} e {i + 2}) é", false);
+                    if (tipo == null) return;
+                    double recuo = ctx.Config.RecuoPorLado(tipo.Value);
+                    recuoFim[i] = recuo;
+                    recuoInicio[i + 1] = recuo;
+                }
+                trechos = trechos.Select((t, i) => t.Encolher(recuoInicio[i], recuoFim[i], fator)).ToList();
 
                 var cotar = Perguntas.SimNao(ed, "\nCotar a parede (trechos e vãos)?", true);
                 if (cotar == null) return;
@@ -62,7 +76,7 @@ namespace AlvMod.Plugin
                     if (r.Sucesso) fechados++;
                     Relatar(doc, "ALV1FIADA", $"Trecho {i + 1}", trechos[i], r);
                 }
-                if (cotar.Value) desenhista.Cotar(trechos, ctx.Config.Escala);
+                if (cotar.Value) desenhista.Cotar(trechos, ctx.Config.Escala, LarguraParede(ctx));
 
                 tr.Commit();
                 Resumo(ed, fechados, trechos.Count, desenhista);
@@ -85,11 +99,15 @@ namespace AlvMod.Plugin
                 var trecho = Geometria.SelecionarTrecho(ed, tr, "\nSelecione o eixo do trecho na planta da 1ª fiada")?.Normalizado();
                 if (trecho == null) return;
 
-                var abertura = Perguntas.Opcao(ed,
-                    "\nPontas do trecho que encostam em porta/janela (Inicio = ponta esquerda/inferior) [Nenhuma/Inicio/Fim/Ambas]",
-                    new[] { "Nenhuma", "Inicio", "Fim", "Ambas" }, "Nenhuma");
-                if (abertura == null) return;
-                var aberturas = (Bordas)Enum.Parse(typeof(Bordas), abertura);
+                // Pontas em porta/janela: encolhe pela folga de marco e proíbe compensador encostado no vão.
+                var tipoInicio = PerguntarAbertura(ed, "\nA ponta inicial (esquerda/inferior) encosta em", true);
+                if (tipoInicio == null) return;
+                var tipoFim = PerguntarAbertura(ed, "\nA ponta final (direita/superior) encosta em", true);
+                if (tipoFim == null) return;
+                var aberturas = Bordas.Nenhuma;
+                if (tipoInicio != TipoAbertura.Parede) aberturas |= Bordas.Inicio;
+                if (tipoFim != TipoAbertura.Parede) aberturas |= Bordas.Fim;
+                trecho = trecho.Encolher(ctx.Config.RecuoPorLado(tipoInicio.Value), ctx.Config.RecuoPorLado(tipoFim.Value), fator);
 
                 var filtro = new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, "INSERT,LWPOLYLINE") });
                 var sel = ed.GetSelection(
@@ -115,7 +133,7 @@ namespace AlvMod.Plugin
 
                 var desenhista = new Desenhista(doc.Database, tr, fator, deslocamento.Value);
                 foreach (var p in r.Pecas) desenhista.Desenhar(trecho, p);
-                if (cotar.Value) desenhista.Cotar(new[] { trecho }, ctx.Config.Escala);
+                if (cotar.Value) desenhista.Cotar(new[] { trecho }, ctx.Config.Escala, LarguraParede(ctx));
                 ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
                 tr.Commit();
 
@@ -124,6 +142,19 @@ namespace AlvMod.Plugin
                 Resumo(ed, r.Sucesso ? 1 : 0, 1, desenhista);
             }
         }
+
+        /// <summary>Tipo de vão. Em <paramref name="incluiParede"/>, "Parede" = a ponta não encosta em vão.</summary>
+        private static TipoAbertura? PerguntarAbertura(Editor ed, string mensagem, bool incluiParede)
+        {
+            var opcoes = incluiParede
+                ? new[] { "Parede", "Porta", "Janela", "Passagem" }
+                : new[] { "Porta", "Janela", "Passagem" };
+            var r = Perguntas.Opcao(ed, $"{mensagem} [{string.Join("/", opcoes)}]", opcoes, opcoes[0]);
+            return r == null ? (TipoAbertura?)null : (TipoAbertura)Enum.Parse(typeof(TipoAbertura), r);
+        }
+
+        private static int LarguraParede(ContextoObra ctx) =>
+            ctx.Familia.PecasDeFiada().Select(p => p.Largura).DefaultIfEmpty(14).Max();
 
         /// <summary>Centro das juntas da 1ª fiada, projetadas no eixo (cm a partir do início do trecho).</summary>
         private static List<double> JuntasDaPrimeiraFiada(Editor ed, Transaction tr, Trecho trecho,

@@ -200,14 +200,5 @@ namespace AlvMod.Core.Tests
             Assert.DoesNotContain(r.Pecas, p => p.Peca.EhCompensador);
             Assert.True(familia.Buscar("4").Habilitada);
         }
-
-        [Fact]
-        public void Familia_ceramica_fecha_com_39_19_e_4()
-        {
-            var r = new Modulador(CatalogoPadrao.Familia39Ceramico()).PrimeiraFiada(604);
-
-            Assert.True(r.Sucesso, r.Mensagem);
-            Assert.Equal(604, r.Pecas.Last().Fim);
-        }
     }
 }
