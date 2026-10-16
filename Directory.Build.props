@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <!-- Sobrescritos pelo workflow de release a partir da tag (v1.2.3) e do repositório. -->
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
+    <GitHubRepo Condition="'$(GitHubRepo)' == ''">Daniel-Vilarinho/plugin-modulacao-alvenaria</GitHubRepo>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <Authors>AlvMod</Authors>
+    <Product>AlvMod</Product>
+  </PropertyGroup>
+</Project>

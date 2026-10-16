@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bundle do AutoCAD: carregado sozinho a partir de %APPDATA%\Autodesk\ApplicationPlugins (pasta confiável). -->
+<ApplicationPackage
+    SchemaVersion="1.0"
+    AutodeskProduct="AutoCAD"
+    ProductType="Application"
+    Name="AlvMod"
+    Description="Modulação de alvenaria autoportante (1ª e 2ª fiada)"
+    AppVersion="__VERSAO__"
+    ProductCode="{08FA3772-8476-41AB-957F-783FA2A3F315}"
+    UpgradeCode="{8C1820C2-9124-46A4-A003-2C12B7607CF2}"
+    Author="AlvMod">
+  <CompanyDetails Name="AlvMod" />
+  <Components Description="AutoCAD 2022 a 2024">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.1" SeriesMax="R24.3" />
+    <ComponentEntry
+        AppName="AlvMod"
+        ModuleName="./Contents/AlvMod.Plugin.dll"
+        AppDescription="Modulação de alvenaria autoportante"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+</ApplicationPackage>

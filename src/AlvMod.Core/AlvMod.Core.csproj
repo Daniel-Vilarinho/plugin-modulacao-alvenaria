@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Motor de modulação: SEM nenhuma referência ao AutoCAD (testável isoladamente). -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>AlvMod.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

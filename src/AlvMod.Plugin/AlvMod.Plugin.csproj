@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plugin para AutoCAD 2022–2024 (.NET Framework 4.8, x64). -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>AlvMod.Plugin</RootNamespace>
+    <AssemblyName>AlvMod.Plugin</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referências do AutoCAD 2022 (R24.1). ExcludeAssets=runtime equivale a "Copiar Local = Falso":
+         as DLLs do AutoCAD nunca vão junto com o plugin. -->
+    <PackageReference Include="AutoCAD.NET" Version="24.1.51000" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AlvMod.Core\AlvMod.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Repositório de onde o atualizador busca as versões novas. -->
+    <AssemblyMetadata Include="GitHubRepo" Value="$(GitHubRepo)" />
+  </ItemGroup>
+
+</Project>

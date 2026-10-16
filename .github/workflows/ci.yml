@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Testes do motor
+        run: dotnet test tests/AlvMod.Core.Tests/AlvMod.Core.Tests.csproj -c Release
+
+      - name: Compilar e empacotar o plugin
+        shell: pwsh
+        run: ./build/empacotar.ps1 -Versao 0.0.0-ci -Repo "${{ github.repository }}"
