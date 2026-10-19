@@ -129,8 +129,8 @@ namespace AlvMod.Core.Modulacao
         /// <summary>Regras que foi preciso relaxar para o trecho fechar (devem ir para o relatório).</summary>
         public List<string> Avisos { get; set; } = new List<string>();
 
-        /// <summary>Posições (cm) do centro de cada junta interna.</summary>
-        public IEnumerable<double> Juntas(int junta) =>
+        /// <summary>Posições (cm, a partir do início do trecho) do centro de cada junta entre peças.</summary>
+        public IEnumerable<double> Juntas() =>
             Pecas.Zip(Pecas.Skip(1), (a, b) => (a.Fim + b.Inicio) / 2);
     }
 
@@ -182,23 +182,16 @@ namespace AlvMod.Core.Modulacao
 
         // ------------------------------------------------------------------ API
 
-        public ResultadoModulacao PrimeiraFiada(double comprimentoCm, Pontas pontas) =>
+        /// <summary>Modula um trecho da 1ª fiada.</summary>
+        /// <param name="comprimentoCm">Comprimento do trecho de alvenaria (cm).</param>
+        /// <param name="pontas">O que há em cada ponta (porta, encontro…). Nulo = duas pontas livres.</param>
+        public ResultadoModulacao PrimeiraFiada(double comprimentoCm, Pontas pontas = null) =>
             Modular(comprimentoCm, null, pontas ?? Pontas.Nenhuma, "1ª fiada");
 
-        public ResultadoModulacao PrimeiraFiada(double comprimentoCm, Bordas aberturas = Bordas.Nenhuma,
-            Bordas encontros = Bordas.Nenhuma) =>
-            PrimeiraFiada(comprimentoCm, Converter(aberturas, encontros));
-
+        /// <summary>Modula um trecho da 2ª fiada evitando junta a prumo com a 1ª.</summary>
         /// <param name="juntasPrimeiraFiada">Centro das juntas da 1ª fiada, em cm a partir do início do trecho.</param>
-        public ResultadoModulacao SegundaFiada(double comprimentoCm, IEnumerable<double> juntasPrimeiraFiada, Pontas pontas) =>
+        public ResultadoModulacao SegundaFiada(double comprimentoCm, IEnumerable<double> juntasPrimeiraFiada, Pontas pontas = null) =>
             Modular(comprimentoCm, (juntasPrimeiraFiada ?? Enumerable.Empty<double>()).ToList(), pontas ?? Pontas.Nenhuma, "2ª fiada");
-
-        public ResultadoModulacao SegundaFiada(double comprimentoCm, IEnumerable<double> juntasPrimeiraFiada,
-            Bordas aberturas = Bordas.Nenhuma, Bordas encontros = Bordas.Nenhuma) =>
-            SegundaFiada(comprimentoCm, juntasPrimeiraFiada, Converter(aberturas, encontros));
-
-        private static Pontas Converter(Bordas aberturas, Bordas encontros) =>
-            new Pontas { SemCompensador = aberturas | encontros, Encontro = encontros };
 
         /// <summary>Comprimentos que fecham, o mais próximo abaixo e acima do medido.</summary>
         public List<int> ComprimentosValidosProximos(double comprimentoCm, Pontas pontas = null)
@@ -289,7 +282,8 @@ namespace AlvMod.Core.Modulacao
             var p2 = (ancoraNoFim ? pontas.Espelhado() : pontas).SemExigenciasDoLado(Bordas.Fim);
             List<double> j2 = segunda && ancoraNoFim ? juntas1.Select(j => comprimentoCm - j).ToList() : juntas1;
 
-            int nMax = (int)Math.Floor((comprimentoCm + _familia.Junta + _opcoes.Tolerancia) / Passo);
+            // Só o que cabe sem invadir a outra parede (sobra >= 0).
+            int nMax = (int)Math.Floor((comprimentoCm + _familia.Junta + 1e-6) / Passo);
             for (int k = nMax; k > 0; k--)
             {
                 foreach (var t in tentativas)

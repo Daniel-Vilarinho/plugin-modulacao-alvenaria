@@ -76,26 +76,52 @@ namespace AlvMod.Plugin
                     ed.WriteMessage($"\nAbertura na alvenaria: {Perguntas.Num(tamanho + folga)} cm (tamanho {Perguntas.Num(tamanho)} + {Perguntas.Num(folga)}).");
                 }
                 trechos = trechos.Select((t, i) => t.Encolher(recuoInicio[i], recuoFim[i], fator)).ToList();
+                // A cota mostra todas as aberturas (janela = vidro + 6), mesmo as que não cortam a fiada.
+                var pontosCota = trechos.SelectMany(t => new[] { t.Inicio, t.Fim }).ToList();
+
+                // Janela não corta a 1ª e a 2ª fiada (peitoril alto): a alvenaria continua sob ela.
+                var modulados = new List<Trecho> { trechos[0] };
+                var vaos = new List<TipoAbertura>();
+                for (int i = 1; i < trechos.Count; i++)
+                {
+                    if (tipos[i - 1] == TipoAbertura.Janela)
+                        modulados[modulados.Count - 1] = new Trecho(modulados[modulados.Count - 1].Inicio, trechos[i].Fim);
+                    else
+                    {
+                        modulados.Add(trechos[i]);
+                        vaos.Add(tipos[i - 1]);
+                    }
+                }
+
+                // Pontas da parede: em canto/T a parede continua (sem 19 e sem bolacha na ponta).
+                var encostam = Perguntas.Opcao(ed, "\nAs pontas da parede encostam em outra parede (canto, T)? [Ambas/Inicio/Fim/Nenhuma]",
+                    new[] { "Ambas", "Inicio", "Fim", "Nenhuma" }, "Ambas");
+                if (encostam == null) return;
+                var pontaInicial = encostam == "Ambas" || encostam == "Inicio" ? TipoAbertura.Parede : TipoAbertura.Livre;
+                var pontaFinal = encostam == "Ambas" || encostam == "Fim" ? TipoAbertura.Parede : TipoAbertura.Livre;
 
                 var cotar = Perguntas.SimNao(ed, "\nCotar a parede (trechos e vãos)?", true);
                 if (cotar == null) return;
 
                 var desenhista = new Desenhista(doc.Database, tr, fator);
                 int fechados = 0;
-                for (int i = 0; i < trechos.Count; i++)
+                for (int i = 0; i < modulados.Count; i++)
                 {
-                    var pontas = PontasDoVao(i > 0 ? tipos[i - 1] : (TipoAbertura?)null,
-                                             i < trechos.Count - 1 ? tipos[i] : (TipoAbertura?)null);
+                    var pontas = PontasDoVao(i > 0 ? vaos[i - 1] : pontaInicial,
+                                             i < modulados.Count - 1 ? vaos[i] : pontaFinal);
 
-                    var r = modulador.PrimeiraFiada(trechos[i].Comprimento * fator, pontas);
-                    foreach (var p in r.Pecas) desenhista.Desenhar(trechos[i], p);
+                    double comprimento = modulados[i].Comprimento * fator;
+                    var r = modulador.PrimeiraFiada(comprimento, pontas);
+                    foreach (var p in r.Pecas) desenhista.Desenhar(modulados[i], p);
                     if (r.Sucesso) fechados++;
-                    Relatar(doc, "ALV1FIADA", $"Trecho {i + 1}", trechos[i], r);
+                    string nome = $"Trecho {i + 1}";
+                    Registro.Adicionar(doc, MemoriaCalculo.Linha("ALV1FIADA", nome, 1, comprimento, pontas, r));
+                    Relatar(doc, "ALV1FIADA", nome, modulados[i], r);
                 }
-                if (cotar.Value) desenhista.Cotar(trechos, ctx.Config.Escala, LarguraParede(ctx));
+                if (cotar.Value) desenhista.CotarPontos(trechos[0], pontosCota, ctx.Config.Escala, LarguraParede(ctx));
 
                 tr.Commit();
-                Resumo(ed, fechados, trechos.Count, desenhista);
+                Resumo(ed, fechados, modulados.Count, desenhista);
             }
         }
 
@@ -116,7 +142,7 @@ namespace AlvMod.Plugin
                 var trecho = Geometria.SelecionarTrecho(ed, tr, "\nTrecho na planta da 1ª fiada", ref espessura)?.Normalizado();
                 if (trecho == null) return;
 
-                // Pontas em porta/janela: encolhe pela folga de marco e proíbe compensador encostado no vão.
+                // O que há em cada ponta define as peças (19 na porta, nada de 19 nem bolacha encostado em parede).
                 var tipoInicio = PerguntarAbertura(ed, "\nA ponta inicial (esquerda/inferior) encosta em", true);
                 if (tipoInicio == null) return;
                 var tipoFim = PerguntarAbertura(ed, "\nA ponta final (direita/superior) encosta em", true);
@@ -139,6 +165,7 @@ namespace AlvMod.Plugin
                 juntas = juntas.Select(j => j - lida.Value.ini).ToList();
 
                 var r = modulador.SegundaFiada(comprimento, juntas, pontas);
+                Registro.Adicionar(doc, MemoriaCalculo.Linha("ALV2FIADA", "Trecho", 2, comprimento, pontas, r));
                 if (!r.Sucesso && !r.Parcial)
                 {
                     Relatar(doc, "ALV2FIADA", "Trecho", trecho, r);
@@ -162,25 +189,32 @@ namespace AlvMod.Plugin
             }
         }
 
-        /// <summary>Tipo de vão. Em <paramref name="incluiParede"/>, "Parede" = a ponta não encosta em vão.</summary>
-        private static TipoAbertura? PerguntarAbertura(Editor ed, string mensagem, bool incluiParede)
+        /// <summary>
+        /// O que há num vão (entre dois segmentos: porta, janela, passagem) ou numa ponta de trecho
+        /// (<paramref name="ponta"/>: outra parede, ponta livre, porta ou passagem).
+        /// </summary>
+        private static TipoAbertura? PerguntarAbertura(Editor ed, string mensagem, bool ponta)
         {
-            var opcoes = incluiParede
-                ? new[] { "Parede", "Porta", "Janela", "Passagem" }
+            var opcoes = ponta
+                ? new[] { "Parede", "Livre", "Porta", "Passagem" }
                 : new[] { "Porta", "Janela", "Passagem" };
             var r = Perguntas.Opcao(ed, $"{mensagem} [{string.Join("/", opcoes)}]", opcoes, opcoes[0]);
             return r == null ? (TipoAbertura?)null : (TipoAbertura)Enum.Parse(typeof(TipoAbertura), r);
         }
 
-        /// <summary>Pontas de um trecho a partir do que existe em cada uma (porta/passagem exigem o 19).</summary>
+        /// <summary>
+        /// Pontas de um trecho a partir do que existe em cada uma, com as mesmas regras do ALVPLANTA:
+        /// porta/passagem exigem o 19; outra parede (canto, T) proíbe o 19; nas duas, nada de bolacha.
+        /// </summary>
         private static Pontas PontasDoVao(TipoAbertura? inicio, TipoAbertura? fim)
         {
             var p = new Pontas();
             void Marca(TipoAbertura? t, Bordas lado)
             {
-                if (t == null || t == TipoAbertura.Parede) return;
+                if (t == null || t == TipoAbertura.Livre) return;
                 p.SemCompensador |= lado;
                 if (t == TipoAbertura.Porta || t == TipoAbertura.Passagem) p.Porta |= lado;
+                if (t == TipoAbertura.Parede) p.Encontro |= lado;
             }
             Marca(inicio, Bordas.Inicio);
             Marca(fim, Bordas.Fim);

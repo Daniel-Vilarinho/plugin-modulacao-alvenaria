@@ -93,7 +93,7 @@ namespace AlvMod.Core.Tests
         public void Fiada_1_parede_maior_passa_nos_cantos_e_porta_soma_folga_de_marco()
         {
             var p = Detectar();
-            var trechos = PlanejadorFiadas.Trechos(p, 1, new OpcoesFiadas())
+            var trechos = PlanejadorFiadas.Planejar(p, 1, new OpcoesFiadas()).Trechos
                 .Where(t => t.Parede.Nome == "PAREDE 2").OrderBy(t => t.Inicio).ToList();
 
             // Passa nos cantos: vai até a face externa (eixo ∓ 7). Porta 60–140 + 5,5 de cada lado.
@@ -114,7 +114,7 @@ namespace AlvMod.Core.Tests
         public void Fiada_2_alterna_a_parede_que_passa_nos_cantos_e_no_T()
         {
             var p = Detectar();
-            var trechos = PlanejadorFiadas.Trechos(p, 2, new OpcoesFiadas())
+            var trechos = PlanejadorFiadas.Planejar(p, 2, new OpcoesFiadas()).Trechos
                 .Where(t => t.Parede.Nome == "PAREDE 2").OrderBy(t => t.Inicio).ToList();
 
             // Recua nos cantos (eixo ± 8) e é cortada no T, onde a parede interna passa.
@@ -126,7 +126,7 @@ namespace AlvMod.Core.Tests
             Assert.Equal(208, trechos[2].Inicio, 3);
             Assert.Equal(384.5, trechos[2].Fim, 3);
 
-            var interna = PlanejadorFiadas.Trechos(p, 2, new OpcoesFiadas()).Single(t => t.Parede.Nome == "PAREDE 4");
+            var interna = PlanejadorFiadas.Planejar(p, 2, new OpcoesFiadas()).Trechos.Single(t => t.Parede.Nome == "PAREDE 4");
             Assert.Equal(0.5, interna.Inicio, 3);   // passa até a face externa das paredes de cima e de baixo
             Assert.Equal(299.5, interna.Fim, 3);
             Assert.Equal(Bordas.Ambas, interna.Pontas.Passa34);     // atravessa o T: termina em 34 nas duas pontas
@@ -139,9 +139,9 @@ namespace AlvMod.Core.Tests
             var p = Detectar();
             var modulador = new Modulador(CatalogoPadrao.Familia39Concreto());
             var op = new OpcoesFiadas();
-            var f1 = PlanejadorFiadas.Trechos(p, 1, op)
+            var f1 = PlanejadorFiadas.Planejar(p, 1, op).Trechos
                 .Select(t => (trecho: t, resultado: modulador.PrimeiraFiada(t.Comprimento, t.Pontas))).ToList();
-            var f2 = PlanejadorFiadas.Trechos(p, 2, op).Select(t =>
+            var f2 = PlanejadorFiadas.Planejar(p, 2, op).Trechos.Select(t =>
                 (trecho: t, resultado: modulador.SegundaFiada(t.Comprimento,
                     PlanejadorFiadas.Arestas(f1, t.Parede).Select(a => a - t.Inicio), t.Pontas))).ToList();
 
@@ -149,7 +149,7 @@ namespace AlvMod.Core.Tests
             foreach (var (t, r) in f2.Where(x => x.resultado.Pecas.Count > 1 && !x.resultado.Avisos.Any(av => av.Contains("defasagem") || av.Contains("prumo"))))
             {
                 var arestas1 = PlanejadorFiadas.Arestas(f1, t.Parede);
-                var juntas = r.Juntas(1).Select(j => j + t.Inicio).ToList();
+                var juntas = r.Juntas().Select(j => j + t.Inicio).ToList();
                 // A junta ao lado do 19 da porta é igual nas duas fiadas (exceção combinada com o engenheiro).
                 if (t.Pontas.Porta.HasFlag(Bordas.Inicio) && juntas.Count > 0) juntas.RemoveAt(0);
                 if (t.Pontas.Porta.HasFlag(Bordas.Fim) && juntas.Count > 0) juntas.RemoveAt(juntas.Count - 1);
@@ -182,7 +182,7 @@ namespace AlvMod.Core.Tests
             Assert.Equal(59.5, a, 3);     // 100 - (70 + 11) / 2
             Assert.Equal(140.5, b, 3);
 
-            var trechos = PlanejadorFiadas.Trechos(p, 1, new OpcoesFiadas())
+            var trechos = PlanejadorFiadas.Planejar(p, 1, new OpcoesFiadas()).Trechos
                 .Where(t => t.Parede.Horizontal && t.Parede.Coord < 10).OrderBy(t => t.Inicio).ToList();
             Assert.Equal(59.5, trechos[0].Fim, 3);
             Assert.Equal(140.5, trechos[1].Inicio, 3);
@@ -198,7 +198,7 @@ namespace AlvMod.Core.Tests
             Assert.Equal(TipoVao.Janela, janela.Tipo);
             Assert.Equal(100, janela.Tamanho, 3);        // vidro = vão
             var op = new OpcoesFiadas();
-            var trechos = PlanejadorFiadas.Trechos(p, 1, op).Where(t => t.Parede == topo).ToList();
+            var trechos = PlanejadorFiadas.Planejar(p, 1, op).Trechos.Where(t => t.Parede == topo).ToList();
             Assert.Single(trechos);                        // a janela não corta a 1ª fiada
 
             var pontos = PlanejadorFiadas.PontosDeCota(topo, trechos, op);
@@ -254,6 +254,38 @@ namespace AlvMod.Core.Tests
             Assert.Contains(arestas1, a => Math.Abs(a - 227.5) < 0.6);
             Assert.Contains(cortados, t => Math.Abs(t.Fim - 192) < 0.01);
             Assert.Contains(cortados, t => Math.Abs(t.Inicio - 208) < 0.01);
+        }
+
+        [Fact]
+        public void Parede_partida_pelo_desenho_no_T_vira_uma_parede_so_que_passa()
+        {
+            // Faces de baixo e de cima interrompidas num vão de 21 cm (maior que a parede de 15 que chega):
+            // o detector separa em duas, e as duas terminam no mesmo encontro, uma de cada lado.
+            var s = new List<Segmento>();
+            void P(double x1, double y1, double x2, double y2) => s.Add(new Segmento("PAREDE", x1, y1, x2, y2));
+            P(0, 0, 192, 0); P(213, 0, 400, 0); P(0, 15, 192, 15); P(213, 15, 400, 15);
+            P(195, 15, 195, 200); P(210, 15, 210, 200);
+
+            var p = DetectorParedes.Detectar(s, new OpcoesDeteccao { LayersParede = { "PAREDE" } });
+
+            Assert.Equal(2, p.Paredes.Count);
+            var horizontal = p.Paredes.Single(w => w.Horizontal);
+            Assert.Equal(0, horizontal.Inicio, 3);
+            Assert.Equal(400, horizontal.Fim, 3);
+            var t = Assert.Single(p.Encontros);
+            Assert.Equal(TipoEncontro.T, t.Tipo);
+            Assert.Same(horizontal, Assert.Single(t.Passantes));
+        }
+
+        [Fact]
+        public void Unidade_errada_nao_acha_parede_e_o_detector_sugere_a_certa()
+        {
+            // A mesma planta desenhada em metros e lida como se estivesse em cm.
+            var metros = Planta().Select(x => new Segmento(x.Layer, x.X1 / 100, x.Y1 / 100, x.X2 / 100, x.Y2 / 100)).ToList();
+            var op = new OpcoesDeteccao { LayersParede = { "PAREDE" }, LayersPorta = { "PORTA" }, LayersJanela = { "JANELA" } };
+
+            Assert.Empty(DetectorParedes.Detectar(metros, op).Paredes);
+            Assert.Equal(100, DetectorParedes.SugerirFatorCm(metros, 1, op));
         }
     }
 }

@@ -37,6 +37,9 @@ namespace AlvMod.Plugin
 
             var sel = SelecionarPavimento(ed, "\nSelecione a planta de arquitetura do pavimento (janela): ");
             if (sel == null) return;
+            sel = OferecerApagarAnterior(doc, sel, ctx.Catalogo);
+            if (sel == null) return;
+            Registro.Reiniciar(doc, "ALVPLANTA");
 
             double fator = ctx.Config.FatorCm;
             using (doc.LockDocument())
@@ -93,6 +96,7 @@ namespace AlvMod.Plugin
             var sel = SelecionarPavimento(ed,
                 "\nSelecione a planta da 1ª fiada (arquitetura + blocos já conferidos/editados): ");
             if (sel == null) return;
+            Registro.Reiniciar(doc, "ALVPLANTA2");
 
             double fator = ctx.Config.FatorCm;
             using (doc.LockDocument())
@@ -190,6 +194,49 @@ namespace AlvMod.Plugin
             }
         }
 
+        /// <summary>
+        /// Rodar o ALVPLANTA de novo na mesma planta duplicaria blocos, eixos, numeração e cotas: se a seleção
+        /// tem objetos de uma modulação anterior, pergunta se apaga. Devolve a seleção sem eles (ou como
+        /// estava, se o usuário preferir manter), ou nulo se cancelou.
+        /// </summary>
+        private static ObjectId[] OferecerApagarAnterior(Document doc, ObjectId[] sel, CatalogoBlocos catalogo)
+        {
+            var layers = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { LayerEixos, LayerNumeracao, Desenhista.LayerCotas };
+            var anteriores = new List<ObjectId>();
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                foreach (var id in sel)
+                {
+                    var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                    if (ent == null) continue;
+                    bool nosso = layers.Contains(ent.Layer);
+                    if (!nosso && ent is BlockReference br)
+                    {
+                        var defId = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
+                        nosso = catalogo.BuscarPorBloco(((BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead)).Name) != null;
+                    }
+                    if (nosso) anteriores.Add(id);
+                }
+            }
+            if (anteriores.Count == 0) return sel;
+
+            var apagar = Perguntas.SimNao(doc.Editor,
+                $"\nA seleção já tem {anteriores.Count} objeto(s) de uma modulação anterior (blocos do catálogo, eixos, " +
+                "numeração, cotas). Apagar antes de modular de novo?", true);
+            if (apagar == null) return null;
+            if (!apagar.Value) return sel;
+
+            using (doc.LockDocument())
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                foreach (var id in anteriores) tr.GetObject(id, OpenMode.ForWrite).Erase();
+                tr.Commit();
+            }
+            doc.Editor.WriteMessage($"\n{anteriores.Count} objeto(s) da modulação anterior apagados.");
+            var apagados = new HashSet<ObjectId>(anteriores);
+            return sel.Where(id => !apagados.Contains(id)).ToArray();
+        }
+
         private static ObjectId[] SelecionarPavimento(Editor ed, string mensagem)
         {
             var r = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = mensagem });
@@ -208,7 +255,12 @@ namespace AlvMod.Plugin
             if (planta.Paredes.Count == 0)
             {
                 ed.WriteMessage($"\nNenhuma parede encontrada nos layers {string.Join(", ", cfg.LayersParede)} " +
-                                "(paredes pelas duas faces, ortogonais, 5 a 35 cm de espessura). Confira a unidade e os layers.");
+                                "(paredes pelas duas faces, ortogonais, 5 a 35 cm de espessura).");
+                var sugestao = DetectorParedes.SugerirFatorCm(leitor.Segmentos, cfg.FatorCm, op);
+                ed.WriteMessage(sugestao.HasValue
+                    ? $"\nCom a unidade {Perguntas.Num(sugestao.Value)} as paredes aparecem: rode de novo e responda " +
+                      $"{Perguntas.Num(sugestao.Value)} em \"Quantos cm vale 1 unidade do desenho\" (agora está {Perguntas.Num(cfg.FatorCm)})."
+                    : "\nConfira a unidade do desenho (1 = cm, 100 = metro) e se a linha clicada é uma face de parede.");
                 return null;
             }
             Numeracao.Numerar(planta);
@@ -253,6 +305,7 @@ namespace AlvMod.Plugin
             foreach (var t in trechos)
             {
                 var r = modular(t);
+                Registro.Adicionar(doc, MemoriaCalculo.Linha(comando, t.Nome, t.Fiada, t.Comprimento, t.Pontas, r));
                 var geo = Geometrico(t, fator);
                 foreach (var p in r.Pecas) desenhista.Desenhar(geo, p);
                 if (r.Sucesso) { fechados++; if (r.Avisos.Count == 0) continue; }

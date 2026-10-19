@@ -43,6 +43,23 @@ namespace AlvMod.Core.Catalogo
             }
         };
 
+        /// <summary>
+        /// Custo sugerido ao cadastrar uma peça nova (ALVCATALOGO), na mesma escala do catálogo padrão:
+        /// principal 10, encontro 10, 34 de amarração 45, meio bloco 60, compensadores 80 (≥ 9 cm) ou 90.
+        /// </summary>
+        public static int CustoSugerido(FuncaoPeca funcao, int comprimento)
+        {
+            switch (funcao)
+            {
+                case FuncaoPeca.Principal: return 10;
+                case FuncaoPeca.Encontro: return 10;
+                case FuncaoPeca.Amarracao: return 45;
+                case FuncaoPeca.Meio: return 60;
+                case FuncaoPeca.Compensador: return comprimento >= 9 ? 80 : 90;
+                default: return 0;
+            }
+        }
+
         private static Peca Nova(int comprimento, FuncaoPeca funcao, int custo, short cor,
             bool grauteavel = true, bool habilitada = true) => new Peca
         {

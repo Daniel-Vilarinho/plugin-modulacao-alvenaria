@@ -97,9 +97,6 @@ namespace AlvMod.Core.Planta
             public Ponta Antes;     // ponta do trecho que começa em B
         }
 
-        public static List<TrechoFiada> Trechos(PlantaDetectada planta, int fiada, OpcoesFiadas op, List<string> avisos = null) =>
-            Planejar(planta, fiada, op, avisos).Trechos;
-
         public static PlanoFiada Planejar(PlantaDetectada planta, int fiada, OpcoesFiadas op, List<string> avisos = null)
         {
             var plano = new PlanoFiada();
@@ -114,8 +111,17 @@ namespace AlvMod.Core.Planta
 
                 foreach (var e in planta.EncontrosDe(w))
                 {
-                    if (e.Tipo == TipoEncontro.Outro) continue;
                     double n = w.AoLongo(e.X, e.Y);
+                    if (e.Tipo == TipoEncontro.Outro)
+                    {
+                        // Encontro que o detector não reconheceu: a parede continua ali (sem 19 nem bolacha
+                        // na ponta), mas a amarração fica para o projetista.
+                        if (!e.Terminais.Contains(w)) continue;
+                        var irregular = new Ponta { Encontro = true };
+                        if (Math.Abs(n - w.Inicio) <= Math.Abs(n - w.Fim)) pontaInicio = irregular; else pontaFim = irregular;
+                        avisos?.Add($"{w.Nome}: encontro não reconhecido em ({e.X:0.#}; {e.Y:0.#}); conferir a amarração.");
+                        continue;
+                    }
                     bool passa = e.Dominante(fiada) == w;
                     if (e.Terminais.Contains(w))
                     {

@@ -117,13 +117,13 @@ namespace AlvMod.Core.Tests
         {
             var modulador = NovoModulador();
             var primeira = modulador.PrimeiraFiada(comprimento);
-            var juntas1 = primeira.Juntas(1).ToList();
+            var juntas1 = primeira.Juntas().ToList();
 
             var segunda = modulador.SegundaFiada(comprimento, juntas1);
 
             Assert.True(segunda.Sucesso, segunda.Mensagem);
             Assert.Equal(comprimento, segunda.Pecas.Last().Fim);
-            foreach (var j2 in segunda.Juntas(1))
+            foreach (var j2 in segunda.Juntas())
                 Assert.All(juntas1, j1 => Assert.True(Math.Abs(j1 - j2) >= 10, $"defasagem menor que 1/4 de bloco em {j2}"));
         }
 
@@ -131,7 +131,7 @@ namespace AlvMod.Core.Tests
         public void Segunda_fiada_de_599_comeca_com_meio_bloco()
         {
             var modulador = NovoModulador();
-            var juntas1 = modulador.PrimeiraFiada(599).Juntas(1);
+            var juntas1 = modulador.PrimeiraFiada(599).Juntas();
 
             var segunda = modulador.SegundaFiada(599, juntas1);
 
@@ -166,11 +166,11 @@ namespace AlvMod.Core.Tests
         [InlineData(Bordas.Inicio)]
         [InlineData(Bordas.Fim)]
         [InlineData(Bordas.Ambas)]
-        public void Compensador_nunca_encosta_em_abertura(Bordas aberturas)
+        public void Compensador_nunca_encosta_em_porta(Bordas aberturas)
         {
             foreach (var comprimento in new[] { 604, 609, 394, 99, 1234 })
             {
-                var r = NovoModulador().PrimeiraFiada(comprimento, aberturas);
+                var r = NovoModulador().PrimeiraFiada(comprimento, new Pontas { SemCompensador = aberturas, Porta = aberturas });
 
                 Assert.True(r.Sucesso, r.Mensagem);
                 if (aberturas.HasFlag(Bordas.Inicio)) Assert.False(r.Pecas.First().Peca.EhCompensador, $"{comprimento}: início");
@@ -182,11 +182,11 @@ namespace AlvMod.Core.Tests
         public void Segunda_fiada_busca_defasagem_de_meio_bloco()
         {
             var modulador = NovoModulador();
-            var juntas1 = modulador.PrimeiraFiada(1009).Juntas(1).ToList();
+            var juntas1 = modulador.PrimeiraFiada(1009).Juntas().ToList();
 
             var segunda = modulador.SegundaFiada(1009, juntas1);
 
-            var defasagens = segunda.Juntas(1).Select(j2 => juntas1.Min(j1 => Math.Abs(j1 - j2))).ToList();
+            var defasagens = segunda.Juntas().Select(j2 => juntas1.Min(j1 => Math.Abs(j1 - j2))).ToList();
             Assert.True(defasagens.Count(d => d >= 20) >= defasagens.Count - 1, string.Join(",", defasagens));
         }
 

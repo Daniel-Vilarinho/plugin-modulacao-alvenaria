@@ -188,7 +188,7 @@ namespace AlvMod.Core.Tests
             {
                 var t = par.trecho;
                 var arestas1 = PlanejadorFiadas.Arestas(r.F1, t.Parede, 1, r.P1.Fixas);
-                var juntas = par.resultado.Juntas(1).Select(j => j + t.Inicio).ToList();
+                var juntas = par.resultado.Juntas().Select(j => j + t.Inicio).ToList();
                 if (t.Pontas.Porta.HasFlag(Bordas.Inicio) && juntas.Count > 0) juntas.RemoveAt(0);
                 if (t.Pontas.Porta.HasFlag(Bordas.Fim) && juntas.Count > 0) juntas.RemoveAt(juntas.Count - 1);
                 foreach (var j in juntas)

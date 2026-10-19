@@ -3,15 +3,17 @@ using System.Runtime.Serialization;
 
 namespace AlvMod.Core.Catalogo
 {
-    /// <summary>O que existe no vão ao lado de um trecho de parede.</summary>
+    /// <summary>O que existe ao lado de um trecho de parede (comandos parede por parede).</summary>
     public enum TipoAbertura
     {
-        /// <summary>Não é vão: a parede continua ou termina ali.</summary>
+        /// <summary>Encosta em outra parede (canto, T): a parede continua ali.</summary>
         Parede,
         Porta,
         Janela,
         /// <summary>Vão sem esquadria (não soma folga de marco).</summary>
-        Passagem
+        Passagem,
+        /// <summary>Ponta de parede solta, sem continuidade.</summary>
+        Livre
     }
 
     /// <summary>
@@ -61,17 +63,6 @@ namespace AlvMod.Core.Catalogo
             FolgaPorta = 11;
             FolgaJanela = 6;
         }
-
-        /// <summary>
-        /// Quanto cada parede ao lado do vão encolhe (cm): metade da folga de marco, porque o vão da
-        /// alvenaria é o vão da arquitetura + folga (porta +11, janela +6), dividida entre os dois lados.
-        /// </summary>
-        public double RecuoPorLado(TipoAbertura tipo) => tipo switch
-        {
-            TipoAbertura.Porta => FolgaPorta / 2,
-            TipoAbertura.Janela => FolgaJanela / 2,
-            _ => 0
-        };
 
         public bool Configurada => !string.IsNullOrEmpty(Familia);
     }

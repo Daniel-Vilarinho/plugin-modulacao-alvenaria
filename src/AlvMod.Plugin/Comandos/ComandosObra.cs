@@ -84,6 +84,14 @@ namespace AlvMod.Plugin
                 : fora.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                     .Where(c => familia.Buscar(c) != null).Select(c => familia.Buscar(c).Codigo).Distinct().ToList();
 
+            // Folga de marco (respostas do engenheiro: porta = tamanho da folha + 11, janela = vidro + 6).
+            var folgaPorta = Perguntas.Numero(ed, "\nFolga de marco das PORTAS, somada ao tamanho da folha (cm)", cfg.FolgaPorta, permiteZero: true);
+            if (folgaPorta == null) return false;
+            var folgaJanela = Perguntas.Numero(ed, "\nFolga de marco das JANELAS, somada ao tamanho do vidro (cm)", cfg.FolgaJanela, permiteZero: true);
+            if (folgaJanela == null) return false;
+            cfg.FolgaPorta = folgaPorta.Value;
+            cfg.FolgaJanela = folgaJanela.Value;
+
             var precos = Perguntas.SimNao(ed, "\nInformar preços dos blocos (para o quantitativo)?", false);
             if (precos == null) return false;
             if (precos.Value)
@@ -215,8 +223,8 @@ namespace AlvMod.Plugin
             if (layer == null) return false;
             var cor = Perguntas.Inteiro(ed, "\nCor do layer (1–255)", nova ? 7 : p.Cor, 1);
             if (cor == null) return false;
-            var custo = Perguntas.Inteiro(ed, "\nCusto para o motor (menor = preferida; 39 = 10, 34 = 20, compensadores 22–24)",
-                nova ? CustoSugerido(p.Funcao) : p.Custo);
+            var custo = Perguntas.Inteiro(ed, "\nCusto para o motor (menor = preferida; padrão: 39 = 10, 34 = 45, 19 = 60, bolachas 80–90)",
+                nova ? CatalogoPadrao.CustoSugerido(p.Funcao, p.Comprimento) : p.Custo);
             if (custo == null) return false;
             var graute = Perguntas.SimNao(ed, "\nGrauteável?", nova ? p.Funcao != FuncaoPeca.Compensador : p.Grauteavel);
             if (graute == null) return false;
@@ -232,16 +240,6 @@ namespace AlvMod.Plugin
             if (nova) f.Pecas.Add(p);
             return true;
         }
-
-        private static int CustoSugerido(FuncaoPeca f) => f switch
-        {
-            FuncaoPeca.Principal => 10,
-            FuncaoPeca.Meio => 12,
-            FuncaoPeca.Encontro => 14,
-            FuncaoPeca.Amarracao => 20,
-            FuncaoPeca.Compensador => 23,
-            _ => 0
-        };
 
         private static bool RemoverPeca(Editor ed, CatalogoBlocos catalogo)
         {

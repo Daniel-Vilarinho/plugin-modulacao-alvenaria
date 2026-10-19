@@ -61,23 +61,32 @@ namespace AlvMod.Plugin
             Arquivos.Abrir(caminho);
         }
 
-        /// <summary>Relatório .docx das inconsistências desta sessão (questionário, item 50).</summary>
+        /// <summary>
+        /// Relatório .docx (questionário, item 50): as inconsistências e avisos desta sessão e a memória de
+        /// cálculo de cada trecho modulado (o que foi colocado, em que ordem, e se fechou).
+        /// </summary>
         [CommandMethod("ALVRELATORIO")]
         public void Relatorio()
         {
             var doc = AcApp.DocumentManager.MdiActiveDocument;
             var ocorrencias = Registro.Do(doc);
-            var caminho = Arquivos.AoLadoDoDesenho(doc, "inconsistencias", ".docx");
+            var memoria = Registro.MemoriaDo(doc);
+            var caminho = Arquivos.AoLadoDoDesenho(doc, "relatorio", ".docx");
             Arquivos.Salvar(caminho, RelatorioDocx.Gerar(
-                "Relatório de inconsistências — AlvMod",
+                "Relatório da modulação — AlvMod",
                 $"Desenho: {Path.GetFileName(doc.Name)} — versão do plugin {Atualizador.VersaoAtualTexto}",
-                ocorrencias.ToList()));
+                ocorrencias.ToList(), memoria.ToList()));
 
-            doc.Editor.WriteMessage($"\n{ocorrencias.Count} ocorrência(s). Relatório salvo em {caminho}");
+            doc.Editor.WriteMessage($"\n{ocorrencias.Count} ocorrência(s), {memoria.Count} trecho(s) na memória de cálculo. " +
+                                    $"Relatório salvo em {caminho}");
             Arquivos.Abrir(caminho);
 
-            if (ocorrencias.Count > 0 && Perguntas.SimNao(doc.Editor, "\nLimpar a lista de ocorrências?", false) == true)
+            if ((ocorrencias.Count > 0 || memoria.Count > 0) &&
+                Perguntas.SimNao(doc.Editor, "\nLimpar as ocorrências e a memória de cálculo?", false) == true)
+            {
                 ocorrencias.Clear();
+                memoria.Clear();
+            }
         }
 
         [CommandMethod("ALVVERSAO")]

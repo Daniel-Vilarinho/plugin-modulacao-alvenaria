@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Security;
 using System.Text;
 
@@ -31,7 +33,9 @@ namespace AlvMod.Core.Saidas
     /// </summary>
     public static class RelatorioDocx
     {
-        public static byte[] Gerar(string titulo, string subtitulo, IReadOnlyList<Ocorrencia> ocorrencias)
+        /// <param name="memoria">Memória de cálculo (um trecho por linha); nula ou vazia = sem a seção.</param>
+        public static byte[] Gerar(string titulo, string subtitulo, IReadOnlyList<Ocorrencia> ocorrencias,
+            IReadOnlyList<LinhaMemoria> memoria = null)
         {
             var corpo = new StringBuilder();
             corpo.Append(Paragrafo(titulo, negrito: true, tamanho: 32));
@@ -55,6 +59,24 @@ namespace AlvMod.Core.Saidas
                     corpo.Append(Paragrafo(o.Descricao));
                     corpo.Append(Paragrafo(""));
                 }
+            }
+
+            if (memoria != null && memoria.Count > 0)
+            {
+                corpo.Append(Paragrafo(""));
+                corpo.Append(Paragrafo("Memória de cálculo", negrito: true, tamanho: 28));
+                corpo.Append(Paragrafo("Cada trecho de alvenaria modulado: comprimento entre as pontas, o que há em cada ponta " +
+                                       "(início | fim), peças do início ao fim e resultado.", tamanho: 18));
+                var linhas = new List<string[]>
+                {
+                    new[] { "Comando", "Parede", "Fiada", "Compr. (cm)", "Pontas", "Peças", "Situação", "Observações" }
+                };
+                linhas.AddRange(memoria.Select(m => new[]
+                {
+                    m.Comando, m.Parede, m.Fiada.ToString(), m.Comprimento.ToString("0.#", CultureInfo.GetCultureInfo("pt-BR")),
+                    m.Pontas, m.Pecas, m.Situacao, m.Observacoes
+                }));
+                corpo.Append(Tabela(linhas));
             }
 
             using (var ms = new MemoryStream())
@@ -82,6 +104,22 @@ namespace AlvMod.Core.Saidas
                 }
                 return ms.ToArray();
             }
+        }
+
+        private static string Tabela(List<string[]> linhas)
+        {
+            var t = new StringBuilder("<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/><w:tblW w:w=\"5000\" w:type=\"pct\"/>" +
+                "<w:tblBorders><w:top w:val=\"single\" w:sz=\"4\"/><w:left w:val=\"single\" w:sz=\"4\"/>" +
+                "<w:bottom w:val=\"single\" w:sz=\"4\"/><w:right w:val=\"single\" w:sz=\"4\"/>" +
+                "<w:insideH w:val=\"single\" w:sz=\"4\"/><w:insideV w:val=\"single\" w:sz=\"4\"/></w:tblBorders></w:tblPr>");
+            for (int i = 0; i < linhas.Count; i++)
+            {
+                t.Append(i == 0 ? "<w:tr><w:trPr><w:tblHeader/></w:trPr>" : "<w:tr>");
+                foreach (var celula in linhas[i])
+                    t.Append("<w:tc>").Append(Paragrafo(celula, negrito: i == 0, tamanho: 16)).Append("</w:tc>");
+                t.Append("</w:tr>");
+            }
+            return t.Append("</w:tbl>").ToString();
         }
 
         private static string Paragrafo(string texto, bool negrito = false, int tamanho = 22)

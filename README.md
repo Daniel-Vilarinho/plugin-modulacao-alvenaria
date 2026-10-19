@@ -2,8 +2,9 @@
 
 Plugin para AutoCAD (2018 em diante; não roda no AutoCAD LT) que gera a 1ª e a 2ª fiada de
 alvenaria autoportante, cota as paredes, gera o quantitativo de blocos (Excel) e o relatório de
-inconsistências (Word).
+inconsistências com a memória de cálculo (Word).
 
+- Requisitos do cliente, onde cada um está no código e qual teste prova: [docs/REQUISITOS.md](docs/REQUISITOS.md)
 - Análise do projeto e decisões do questionário: [docs/ANALISE.md](docs/ANALISE.md)
 
 ---
@@ -34,9 +35,11 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
    - pergunta a unidade e a escala;
    - pede para **clicar uma linha de parede, uma de porta e uma de janela**, para aprender os layers
      daquele arquiteto (Enter reaproveita os da obra);
-   - pede para **selecionar o pavimento** com uma janela de seleção.
+   - pede para **selecionar o pavimento** com uma janela de seleção. Se a seleção já tem uma
+     modulação anterior (blocos, eixos, numeração, cotas), pergunta se apaga antes de refazer.
 
-   O plugin então detecta paredes, portas, janelas e encontros (L/T/X), **numera as paredes** e
+   Se nenhuma parede for encontrada, o plugin diz qual unidade encontraria as paredes (ex.: `100`
+   para desenho em metros). O plugin então detecta paredes, portas, janelas e encontros (L/T/X), **numera as paredes** e
    desenha os eixos para conferência. Depois pergunta se pode modular e, com Sim, desenha a
    **1ª fiada do pavimento todo**, com cotas.
 2. Confira e edite a 1ª fiada à mão.
@@ -56,31 +59,33 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 ## Fluxo de trabalho: parede por parede
 
 1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças
-   que a construtora **não** usa e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
+   que a construtora **não** usa, a folga de marco (porta + 11, janela + 6) e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
    esquecer, o `ALV1FIADA` pergunta na primeira vez.
 2. **`ALV1FIADA`**: pergunta a unidade (arquitetura em metros = `100`) e a escala. Depois pede a
    parede **por pontos**, com OSNAP: o **início** e o **fim** numa face, e **um ponto na face
    oposta**. O plugin calcula o eixo, então funciona com a parede em linha dupla, dentro do bloco
    da arquitetura e atravessando janelas. Se a parede for cortada por porta, pede o próximo segmento
    (Enter na face oposta reaproveita a espessura) e pergunta se cada vão é **porta, janela ou
-   passagem**. Por fim, desenha a 1ª fiada e as cotas. As opções `Eixo` e `Faces` permitem clicar
+   passagem** e se as pontas da parede encostam em outra parede (canto, T). A janela não corta a
+   1ª fiada, mas entra na cota. Por fim, desenha a 1ª fiada e as cotas. As opções `Eixo` e `Faces` permitem clicar
    linhas em vez de pontos, inclusive dentro de blocos.
 3. Confira e edite a 1ª fiada à mão, se precisar.
-4. **`ALV2FIADA`**: pede o eixo, o que existe em cada ponta (parede, porta, janela ou passagem) e as
+4. **`ALV2FIADA`**: pede o eixo, o que existe em cada ponta (parede, ponta livre, porta ou passagem) e as
    peças da 1ª fiada **como estão desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
    desenha a 2ª fiada lá, com cotas. Na próxima parede, basta dar Enter para usar o mesmo deslocamento.
 5. **`ALVQUANT`**: quantitativo de blocos em CSV, que abre no Excel, com total em R$ se houver preços.
-6. **`ALVRELATORIO`**: relatório .docx com todas as paredes que não fecharam, para conferir e editar.
+6. **`ALVRELATORIO`**: relatório .docx com as paredes que não fecharam e a **memória de cálculo**
+   (cada trecho: comprimento, pontas, peças em ordem e resultado).
 
 | Comando | O que faz |
 |---|---|
 | `ALVPLANTA` | Pavimento inteiro: detecta paredes/portas/janelas/encontros, numera e gera a 1ª fiada + cotas. |
 | `ALVPLANTA2` | Pavimento inteiro: 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada. |
-| `ALVOBRA` | Família, peças desabilitadas, preços, unidade e escala da obra (gravados no DWG). |
+| `ALVOBRA` | Família, peças desabilitadas, folgas de marco, preços, unidade e escala da obra (gravados no DWG). |
 | `ALV1FIADA` | 1ª fiada + cotas (trechos e vãos). |
 | `ALV2FIADA` | 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada, + cotas. |
 | `ALVQUANT` | Quantitativo em CSV (Excel). Enter = desenho inteiro. |
-| `ALVRELATORIO` | Relatório de inconsistências em Word (.docx). |
+| `ALVRELATORIO` | Relatório em Word (.docx): inconsistências, avisos e memória de cálculo. |
 | `ALVCATALOGO` | Lista, adiciona, edita e remove peças e famílias. |
 | `ALVVERSAO` | Versão instalada e caminho do catálogo. |
 | `ALVATUALIZAR` | Procura e instala versão nova. |

@@ -75,6 +75,27 @@ namespace AlvMod.Core.Planta
             return planta;
         }
 
+        /// <summary>
+        /// Quando nenhuma parede é encontrada, testa as unidades comuns (cm, m, mm, polegada) para sugerir a
+        /// certa ao usuário. Os segmentos chegam em cm pela unidade atual (<paramref name="fatorAtual"/>).
+        /// </summary>
+        /// <returns>O fator (cm por unidade do desenho) que encontra mais paredes, ou nulo se nenhum encontra.</returns>
+        public static double? SugerirFatorCm(IEnumerable<Segmento> segmentosEmCm, double fatorAtual, OpcoesDeteccao op)
+        {
+            var lista = segmentosEmCm.Where(s => op.LayersParede.Contains(s.Layer ?? "")).ToList();
+            double? melhor = null;
+            int maisParedes = 0;
+            foreach (double candidato in new[] { 1, 100, 0.1, 2.54 })
+            {
+                if (Math.Abs(candidato - fatorAtual) < 1e-9 || fatorAtual <= 0) continue;
+                double k = candidato / fatorAtual;
+                var escalados = lista.Select(s => new Segmento(s.Layer, s.X1 * k, s.Y1 * k, s.X2 * k, s.Y2 * k));
+                int n = Detectar(escalados, op).Paredes.Count;
+                if (n > maisParedes) { maisParedes = n; melhor = candidato; }
+            }
+            return melhor;
+        }
+
         // ------------------------------------------------------------------ passo 1
 
         private static List<Linha> UnirColineares(List<Linha> linhas, double tol)
@@ -383,9 +404,53 @@ namespace AlvMod.Core.Planta
                     (ponta ? e.Terminais : e.Passantes).Add(p);
                 }
                 if (e.Terminais.Count + e.Passantes.Count < 2) continue;
-                e.Tipo = Classificar(e);
                 planta.Encontros.Add(e);
             }
+
+            UnirParedesPartidas(planta);
+            foreach (var e in planta.Encontros) e.Tipo = Classificar(e);
+        }
+
+        /// <summary>
+        /// Duas paredes no mesmo eixo que terminam no mesmo encontro, uma de cada lado, são a mesma parede
+        /// passando (a perpendicular só partiu o desenho): viram uma parede só, que passa no encontro.
+        /// </summary>
+        private static void UnirParedesPartidas(PlantaDetectada planta)
+        {
+            foreach (var e in planta.Encontros)
+            {
+                while (true)
+                {
+                    var par = (from a in e.Terminais
+                               from b in e.Terminais
+                               where a != b && a.Orientacao == b.Orientacao &&
+                                     Math.Abs(a.Coord - b.Coord) <= 2 && Math.Abs(a.Espessura - b.Espessura) <= 2 &&
+                                     a.AoLongo(e.X, e.Y) - a.Inicio > 2 && b.Fim - b.AoLongo(e.X, e.Y) > 2
+                               select (a, b)).FirstOrDefault();
+                    if (par.a == null) break;
+
+                    var (antes, depois) = par;
+                    antes.Fim = depois.Fim;
+                    antes.Vaos.AddRange(depois.Vaos);
+                    planta.Paredes.Remove(depois);
+                    foreach (var outro in planta.Encontros)
+                    {
+                        Trocar(outro.Terminais, depois, antes);
+                        Trocar(outro.Passantes, depois, antes);
+                    }
+                    e.Terminais.Remove(antes);
+                    if (!e.Passantes.Contains(antes)) e.Passantes.Add(antes);
+                }
+            }
+            for (int i = 0; i < planta.Paredes.Count; i++) planta.Paredes[i].Indice = i;
+        }
+
+        private static void Trocar(List<Parede> lista, Parede de, Parede para)
+        {
+            int i = lista.IndexOf(de);
+            if (i < 0) return;
+            if (lista.Contains(para)) lista.RemoveAt(i);
+            else lista[i] = para;
         }
 
         private static TipoEncontro Classificar(Encontro e)
@@ -394,9 +459,8 @@ namespace AlvMod.Core.Planta
             if (!perpendiculares) return TipoEncontro.Outro;
             int p = e.Passantes.Count, t = e.Terminais.Count;
             if (p == 0 && t == 2) return TipoEncontro.L;
-            if (p == 0 && t == 3) return TipoEncontro.T; // duas colineares terminando + uma perpendicular
             if (p == 1 && t == 1) return TipoEncontro.T;
-            if (p >= 2 || (p == 1 && t >= 2) || t >= 4) return TipoEncontro.X;
+            if (p >= 2 || (p == 1 && t >= 2)) return TipoEncontro.X;
             return TipoEncontro.Outro;
         }
 

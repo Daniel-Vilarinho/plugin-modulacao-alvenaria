@@ -131,14 +131,18 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Folga_de_marco_porta_11_janela_6_dividida_entre_os_lados()
+        public void Folga_de_marco_padrao_porta_11_janela_6_e_igual_na_obra_e_no_planejador()
         {
             var cfg = new ConfigObra();
+            var lida = Json.LerTexto<ConfigObra>("{\"familia\":\"CONCRETO-39\"}");
+            var op = new AlvMod.Core.Planta.OpcoesFiadas();
 
-            Assert.Equal(5.5, cfg.RecuoPorLado(TipoAbertura.Porta));
-            Assert.Equal(3, cfg.RecuoPorLado(TipoAbertura.Janela));
-            Assert.Equal(0, cfg.RecuoPorLado(TipoAbertura.Passagem));
-            Assert.Equal(0, cfg.RecuoPorLado(TipoAbertura.Parede));
+            Assert.Equal(11, cfg.FolgaPorta);
+            Assert.Equal(6, cfg.FolgaJanela);
+            Assert.Equal(11, lida.FolgaPorta);   // DWG de versão antiga, sem o campo
+            Assert.Equal(6, lida.FolgaJanela);
+            Assert.Equal(cfg.FolgaPorta, op.FolgaPorta);
+            Assert.Equal(cfg.FolgaJanela, op.FolgaJanela);
         }
     
         [Fact]
@@ -175,6 +179,53 @@ namespace AlvMod.Core.Tests
             Assert.True(Custo("34") < Custo("19"));
             Assert.True(Custo("19") < Custo("9"));
             Assert.True(Custo("9") < Custo("4"));
+        }
+
+        [Fact]
+        public void Custo_sugerido_no_ALVCATALOGO_e_o_mesmo_do_catalogo_padrao()
+        {
+            foreach (var p in CatalogoPadrao.Familia39Concreto().Pecas)
+                Assert.Equal(p.Custo, CatalogoPadrao.CustoSugerido(p.Funcao, p.Comprimento));
+        }
+
+        [Fact]
+        public void Memoria_de_calculo_descreve_pontas_pecas_e_situacao_e_vai_no_relatorio()
+        {
+            var m = new AlvMod.Core.Modulacao.Modulador(CatalogoPadrao.Familia39Concreto());
+            var pontas = new AlvMod.Core.Modulacao.Pontas
+            {
+                SemCompensador = AlvMod.Core.Modulacao.Bordas.Ambas,
+                Encontro = AlvMod.Core.Modulacao.Bordas.Inicio,
+                Passa34 = AlvMod.Core.Modulacao.Bordas.Inicio,
+                Porta = AlvMod.Core.Modulacao.Bordas.Fim
+            };
+            var r = m.PrimeiraFiada(254, pontas);   // 34 + 39 × 5 + 19 = 34 + 195 + 19 + 6 juntas
+            var linha = MemoriaCalculo.Linha("ALVPLANTA", "PAREDE 1-A", 1, 254, pontas, r);
+
+            Assert.True(r.Sucesso, r.Mensagem);
+            Assert.Equal("34 + 39 × 5 + 19", linha.Pecas);
+            Assert.Equal("encontro, passa (34) | porta", linha.Pontas);
+            Assert.Equal("fechou", linha.Situacao);
+
+            var parcial = MemoriaCalculo.Linha("ALVPLANTA", "PAREDE 2", 1, 252, null, m.PrimeiraFiada(252, new AlvMod.Core.Modulacao.Pontas
+            {
+                SemCompensador = AlvMod.Core.Modulacao.Bordas.Ambas,
+                Encontro = AlvMod.Core.Modulacao.Bordas.Ambas,
+                Exige39 = AlvMod.Core.Modulacao.Bordas.Ambas
+            }));
+            Assert.StartsWith("parcial (sobra", parcial.Situacao);
+            Assert.Contains("fecharia com", parcial.Observacoes);
+
+            var bytes = RelatorioDocx.Gerar("Relatório", "obra.dwg", new Ocorrencia[0], new[] { linha, parcial });
+            using (var zip = new ZipArchive(new MemoryStream(bytes)))
+            using (var leitor = new StreamReader(zip.GetEntry("word/document.xml").Open()))
+            {
+                var xml = leitor.ReadToEnd();
+                System.Xml.Linq.XDocument.Parse(xml);
+                Assert.Contains("Memória de cálculo", xml);
+                Assert.Contains("34 + 39 × 5 + 19", xml);
+                Assert.Contains("<w:tbl>", xml);
+            }
         }
     }
 }

@@ -57,24 +57,50 @@ namespace AlvMod.Plugin.Servicos
         }
     }
 
-    /// <summary>Inconsistências e avisos de cada desenho aberto, para o relatório (ALVRELATORIO).</summary>
+    /// <summary>
+    /// Inconsistências, avisos e memória de cálculo de cada desenho aberto, para o relatório (ALVRELATORIO).
+    /// Ficam na memória enquanto o desenho está aberto.
+    /// </summary>
     internal static class Registro
     {
-        private static readonly Dictionary<Document, List<Ocorrencia>> PorDesenho = new Dictionary<Document, List<Ocorrencia>>();
-
-        public static List<Ocorrencia> Do(Document doc)
+        private sealed class DoDesenho
         {
-            if (!PorDesenho.TryGetValue(doc, out var lista))
+            public readonly List<Ocorrencia> Ocorrencias = new List<Ocorrencia>();
+            public readonly List<LinhaMemoria> Memoria = new List<LinhaMemoria>();
+        }
+
+        private static readonly Dictionary<Document, DoDesenho> PorDesenho = new Dictionary<Document, DoDesenho>();
+
+        private static DoDesenho De(Document doc)
+        {
+            if (!PorDesenho.TryGetValue(doc, out var d))
             {
-                lista = new List<Ocorrencia>();
-                PorDesenho[doc] = lista;
+                d = new DoDesenho();
+                PorDesenho[doc] = d;
                 doc.BeginDocumentClose += (s, e) => PorDesenho.Remove(doc);
             }
-            return lista;
+            return d;
+        }
+
+        public static List<Ocorrencia> Do(Document doc) => De(doc).Ocorrencias;
+
+        public static List<LinhaMemoria> MemoriaDo(Document doc) => De(doc).Memoria;
+
+        /// <summary>
+        /// Começo de um comando de pavimento inteiro (ALVPLANTA, ALVPLANTA2): o resultado anterior dele é
+        /// substituído, para o relatório não repetir os trechos quando o comando é rodado de novo.
+        /// </summary>
+        public static void Reiniciar(Document doc, string comando)
+        {
+            var d = De(doc);
+            d.Ocorrencias.RemoveAll(o => o.Comando == comando);
+            d.Memoria.RemoveAll(m => m.Comando == comando);
         }
 
         public static void Adicionar(Document doc, Gravidade gravidade, string comando, string local, string descricao) =>
-            Do(doc).Add(new Ocorrencia { Gravidade = gravidade, Comando = comando, Local = local, Descricao = descricao });
+            De(doc).Ocorrencias.Add(new Ocorrencia { Gravidade = gravidade, Comando = comando, Local = local, Descricao = descricao });
+
+        public static void Adicionar(Document doc, LinhaMemoria linha) => De(doc).Memoria.Add(linha);
     }
 
     internal static class Arquivos
