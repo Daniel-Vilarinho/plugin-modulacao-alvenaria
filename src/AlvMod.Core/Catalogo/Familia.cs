@@ -44,8 +44,18 @@ namespace AlvMod.Core.Catalogo
         public Peca Buscar(string codigo) =>
             Pecas.FirstOrDefault(p => string.Equals(p.Codigo, codigo, StringComparison.OrdinalIgnoreCase));
 
-        public Peca BuscarPorBloco(string nomeBloco) =>
-            Pecas.FirstOrDefault(p => string.Equals(p.NomeBlocoDwg, nomeBloco, StringComparison.OrdinalIgnoreCase));
+        /// <summary>
+        /// Peça pelo nome do bloco no DWG. Compara sem diferenciar maiúsculas, espaços, hífens e sublinhados:
+        /// "P-Bloco 34", "P-Bloco34" e "p_bloco34" são o mesmo bloco (cada desenhista grava de um jeito).
+        /// </summary>
+        public Peca BuscarPorBloco(string nomeBloco)
+        {
+            string chave = NormalizarNome(nomeBloco);
+            return Pecas.FirstOrDefault(p => NormalizarNome(p.NomeBlocoDwg) == chave);
+        }
+
+        public static string NormalizarNome(string nome) =>
+            new string((nome ?? "").Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
 
         /// <summary>Cópia com as peças indicadas desabilitadas (peças que a construtora não usa nesta obra).</summary>
         public Familia ParaObra(IEnumerable<string> pecasDesabilitadas)

@@ -72,10 +72,9 @@ namespace AlvMod.Core.Saidas
             p = p ?? Pontas.Nenhuma;
             string Lado(Bordas b)
             {
+                if (p.Passa.HasFlag(b)) return "encontro, passa";
+                if (p.Encontro.HasFlag(b)) return "encontro, encosta";
                 if (p.Porta.HasFlag(b)) return "porta";
-                if (p.Passa34.HasFlag(b)) return "encontro, passa (34)";
-                if (p.Exige39.HasFlag(b)) return "encontro, encosta (39)";
-                if (p.Encontro.HasFlag(b)) return "encontro";
                 return "livre";
             }
             return Lado(Bordas.Inicio) + " | " + Lado(Bordas.Fim);

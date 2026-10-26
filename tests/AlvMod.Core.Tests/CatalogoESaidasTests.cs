@@ -24,8 +24,8 @@ namespace AlvMod.Core.Tests
             var p = relido.Buscar(CatalogoPadrao.Concreto39).Buscar("4");
             Assert.Equal(FuncaoPeca.Compensador, p.Funcao);
             Assert.False(p.Grauteavel);
-            Assert.Equal("P-Bloco4", p.NomeBlocoDwg);
-            Assert.Equal("P-Bloco 14x4", p.Layer);
+            Assert.Equal("bolacha", p.NomeBlocoDwg);
+            Assert.Equal("BOLACHA 14X4", p.Layer);
             Assert.Equal(8, p.Cor);
             Assert.Contains("\"funcao\": \"Compensador\"", File.ReadAllText(caminho));
         }
@@ -131,16 +131,17 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
-        public void Folga_de_marco_padrao_porta_11_janela_6_e_igual_na_obra_e_no_planejador()
+        public void Folga_padrao_porta_11_janela_1_e_igual_na_obra_e_no_planejador()
         {
+            // Modulação do engenheiro: porta 80 → abertura 91; janela 150 → 151.
             var cfg = new ConfigObra();
             var lida = Json.LerTexto<ConfigObra>("{\"familia\":\"CONCRETO-39\"}");
             var op = new AlvMod.Core.Planta.OpcoesFiadas();
 
             Assert.Equal(11, cfg.FolgaPorta);
-            Assert.Equal(6, cfg.FolgaJanela);
+            Assert.Equal(1, cfg.FolgaJanela);
             Assert.Equal(11, lida.FolgaPorta);   // DWG de versão antiga, sem o campo
-            Assert.Equal(6, lida.FolgaJanela);
+            Assert.Equal(1, lida.FolgaJanela);
             Assert.Equal(cfg.FolgaPorta, op.FolgaPorta);
             Assert.Equal(cfg.FolgaJanela, op.FolgaJanela);
         }
@@ -164,9 +165,44 @@ namespace AlvMod.Core.Tests
             Assert.Equal(60, f.Buscar("19").Custo);
             Assert.Equal(10, f.Buscar("54").Custo);
             Assert.Equal(25, f.Buscar("34").Custo);   // editado pelo usuário: não mexe
-            Assert.Equal(80, f.Buscar("9").Custo);
-            Assert.Equal(90, f.Buscar("4").Custo);
+            Assert.Equal(150, f.Buscar("9").Custo);
+            Assert.Equal(160, f.Buscar("4").Custo);
+            Assert.Equal("P-Bloco 19", f.Buscar("19").NomeBlocoDwg);
             Assert.Equal(CatalogoPadrao.VersaoAtual, CatalogoBlocos.Carregar(caminho).VersaoPadrao);
+        }
+
+        [Fact]
+        public void Catalogo_v5_passa_para_os_nomes_e_layers_da_modulacao_do_engenheiro()
+        {
+            var v5 = "{\"versaoPadrao\":5,\"familias\":[{\"nome\":\"CONCRETO-39\",\"pecas\":[" +
+                "{\"codigo\":\"39\",\"comprimento\":39,\"funcao\":\"Principal\",\"blocoPlanta\":\"P-Bloco39\",\"layer\":\"P-Bloco 14x39\",\"custo\":10}," +
+                "{\"codigo\":\"34\",\"comprimento\":34,\"funcao\":\"Amarracao\",\"blocoPlanta\":\"P-Bloco34\",\"layer\":\"P-Bloco 14x34\",\"custo\":45}," +
+                "{\"codigo\":\"9\",\"comprimento\":9,\"funcao\":\"Compensador\",\"blocoPlanta\":\"P-Bloco9\",\"layer\":\"P-Bloco 14x9\",\"custo\":80}," +
+                "{\"codigo\":\"4\",\"comprimento\":4,\"funcao\":\"Compensador\",\"blocoPlanta\":\"MINHA BOLACHA\",\"layer\":\"P-Bloco 14x4\",\"custo\":90}]}]}";
+            var caminho = Path.Combine(Path.GetTempPath(), "alvmod-mig6-" + System.Guid.NewGuid().ToString("N") + ".json");
+            File.WriteAllText(caminho, v5);
+
+            var f = CatalogoBlocos.Carregar(caminho).Buscar(CatalogoPadrao.Concreto39);
+
+            Assert.Equal("P-Bloco39", f.Buscar("39").NomeBlocoDwg);
+            Assert.Equal("P-Bloco 34", f.Buscar("34").NomeBlocoDwg);
+            Assert.Equal("Bloco 9x14", f.Buscar("9").NomeBlocoDwg);
+            Assert.Equal("BOLACHA 14X4", f.Buscar("9").Layer);
+            Assert.Equal(150, f.Buscar("9").Custo);
+            Assert.Equal("MINHA BOLACHA", f.Buscar("4").NomeBlocoDwg);   // nome editado pelo usuário fica
+            Assert.Equal("BOLACHA 14X4", f.Buscar("4").Layer);
+        }
+
+        [Fact]
+        public void Bloco_do_desenho_e_reconhecido_sem_diferenciar_espaco_hifen_e_maiuscula()
+        {
+            var f = CatalogoPadrao.Familia39Concreto();
+
+            Assert.Equal("34", f.BuscarPorBloco("P-Bloco34").Codigo);
+            Assert.Equal("34", f.BuscarPorBloco("p-bloco 34").Codigo);
+            Assert.Equal("4", f.BuscarPorBloco("BOLACHA").Codigo);
+            Assert.Equal("9", f.BuscarPorBloco("Bloco_9x14").Codigo);
+            Assert.Null(f.BuscarPorBloco("PONTO DE GROUT PLANTA"));
         }
 
         [Fact]
@@ -196,7 +232,7 @@ namespace AlvMod.Core.Tests
             {
                 SemCompensador = AlvMod.Core.Modulacao.Bordas.Ambas,
                 Encontro = AlvMod.Core.Modulacao.Bordas.Inicio,
-                Passa34 = AlvMod.Core.Modulacao.Bordas.Inicio,
+                Passa = AlvMod.Core.Modulacao.Bordas.Inicio,
                 Porta = AlvMod.Core.Modulacao.Bordas.Fim
             };
             var r = m.PrimeiraFiada(254, pontas);   // 34 + 39 × 5 + 19 = 34 + 195 + 19 + 6 juntas
@@ -204,14 +240,12 @@ namespace AlvMod.Core.Tests
 
             Assert.True(r.Sucesso, r.Mensagem);
             Assert.Equal("34 + 39 × 5 + 19", linha.Pecas);
-            Assert.Equal("encontro, passa (34) | porta", linha.Pontas);
+            Assert.Equal("encontro, passa | porta", linha.Pontas);
             Assert.Equal("fechou", linha.Situacao);
 
             var parcial = MemoriaCalculo.Linha("ALVPLANTA", "PAREDE 2", 1, 252, null, m.PrimeiraFiada(252, new AlvMod.Core.Modulacao.Pontas
             {
-                SemCompensador = AlvMod.Core.Modulacao.Bordas.Ambas,
-                Encontro = AlvMod.Core.Modulacao.Bordas.Ambas,
-                Exige39 = AlvMod.Core.Modulacao.Bordas.Ambas
+                Encontro = AlvMod.Core.Modulacao.Bordas.Ambas
             }));
             Assert.StartsWith("parcial (sobra", parcial.Situacao);
             Assert.Contains("fecharia com", parcial.Observacoes);

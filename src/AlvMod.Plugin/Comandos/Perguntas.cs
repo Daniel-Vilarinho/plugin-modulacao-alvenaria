@@ -14,9 +14,14 @@ namespace AlvMod.Plugin
             return r == null ? (bool?)null : r == "Sim";
         }
 
-        /// <summary>Retorna a palavra-chave escolhida, o padrão com Enter, ou null se cancelou (Esc).</summary>
+        /// <summary>
+        /// Retorna a palavra-chave escolhida, o padrão com Enter, ou null se cancelou (Esc). O AutoCAD acrescenta
+        /// "[A/B] &lt;padrão&gt;:" à mensagem; uma lista entre colchetes no fim dela sai, para não aparecer duas vezes.
+        /// </summary>
         public static string Opcao(Editor ed, string mensagem, string[] opcoes, string padrao)
         {
+            int colchete = mensagem.LastIndexOf('[');
+            if (colchete >= 0 && mensagem.TrimEnd().EndsWith("]")) mensagem = mensagem.Substring(0, colchete).TrimEnd();
             var o = new PromptKeywordOptions(mensagem);
             foreach (var k in opcoes) o.Keywords.Add(k);
             if (padrao != null) o.Keywords.Default = padrao;

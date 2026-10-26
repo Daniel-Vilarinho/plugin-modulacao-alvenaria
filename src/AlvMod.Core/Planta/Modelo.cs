@@ -62,8 +62,8 @@ namespace AlvMod.Core.Planta
         public double Fim { get; set; }
 
         /// <summary>
-        /// Tamanho da esquadria lido do desenho (folha da porta pelo arco, vidro da janela), em cm.
-        /// 0 = não encontrado: usa-se a abertura desenhada.
+        /// Tamanho da esquadria lido do desenho (folha da porta pelo raio do arco, vidro da janela), em cm.
+        /// Só informativo (relatório): a abertura usa a medida nominal do vão desenhado. 0 = não encontrado.
         /// </summary>
         public double Tamanho { get; set; }
 
@@ -72,13 +72,34 @@ namespace AlvMod.Core.Planta
         public bool TamanhoLido => Tamanho > 0;
 
         /// <summary>
-        /// Abertura na alvenaria: tamanho da esquadria + folga de marco (porta +11, janela +6),
-        /// centrada no vão desenhado.
+        /// Quanto o planejador deslocou a abertura (cm, ao longo do eixo) para os pedaços de parede dos dois
+        /// lados fecharem com blocos inteiros (o engenheiro faz isso: a porta anda alguns centímetros).
+        /// </summary>
+        public double Deslocamento { get; set; }
+
+        /// <summary>
+        /// Lado da dobradiça da porta, pelo centro do arco: −1 = lado do início do vão, +1 = lado do fim,
+        /// 0 = não lido. Do lado da dobradiça o engenheiro sempre deixa alvenaria (o marco precisa dela).
+        /// </summary>
+        public int LadoDobradica { get; set; }
+
+        /// <summary>
+        /// Medida real informada pelo projetista (quadro de esquadrias), quando o desenho não bate com ela
+        /// (ex.: janela desenhada com 50 que na obra é de 60). Nula = vale o desenho.
+        /// </summary>
+        public double? MedidaInformada { get; set; }
+
+        /// <summary>Medida nominal da esquadria: a informada, ou o vão desenhado arredondado de 5 em 5 cm (79 → 80).</summary>
+        public double Nominal => MedidaInformada ?? Math.Round(Largura / 5) * 5;
+
+        /// <summary>
+        /// Abertura na alvenaria = medida nominal + folga de marco (porta +11, janela +1: 80 → 91, 150 → 151),
+        /// centrada no vão desenhado e deslocada de <see cref="Deslocamento"/>.
         /// </summary>
         public (double a, double b) Alvenaria(double folga)
         {
-            double t = TamanhoLido ? Tamanho : Largura;
-            return (Centro - (t + folga) / 2, Centro + (t + folga) / 2);
+            double t = Nominal + folga, c = Centro + Deslocamento;
+            return (c - t / 2, c + t / 2);
         }
     }
 
@@ -171,6 +192,22 @@ namespace AlvMod.Core.Planta
         public List<Encontro> Encontros { get; } = new List<Encontro>();
         public List<string> Avisos { get; } = new List<string>();
 
+        /// <summary>O que foi lido nos layers de parede mas descartado (escada, pedaços de marco...), e por quê.</summary>
+        public List<string> Ignoradas { get; } = new List<string>();
+
+        /// <summary>Trechos retirados por serem drywall/shaft (orientação, eixo, início, fim), em cm.</summary>
+        public List<(Orientacao orientacao, double coord, double inicio, double fim)> Excluidas { get; } =
+            new List<(Orientacao, double, double, double)>();
+
+        /// <summary>Espessura mais frequente das paredes (cm).</summary>
+        public double EspessuraTipica { get; set; }
+
+        /// <summary>
+        /// Grade modular dos eixos (ver GradeModular): passo e a posição de referência dos eixos verticais (x) e
+        /// horizontais (y). Nulo enquanto a grade não foi aplicada.
+        /// </summary>
+        public (double modulo, double refX, double refY)? Grade { get; set; }
+
         public IEnumerable<Encontro> EncontrosDe(Parede p) => Encontros.Where(e => e.Paredes.Contains(p));
     }
 
@@ -180,21 +217,37 @@ namespace AlvMod.Core.Planta
         public HashSet<string> LayersPorta { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> LayersJanela { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>Faixa de espessura (cm) entre duas faces paralelas para serem consideradas parede.</summary>
-        public double EspessuraMinima { get; set; } = 5;
-        public double EspessuraMaxima { get; set; } = 35;
+        /// <summary>
+        /// Faixa de espessura (cm) entre duas faces paralelas para serem consideradas parede. Paredes de
+        /// bloco 14 ficam com 14 a 20 cm de espessura desenhada; abaixo de 10 cm é linha de acabamento,
+        /// acima de 25 cm é degrau de escada ou parede dupla.
+        /// </summary>
+        public double EspessuraMinima { get; set; } = 10;
+        public double EspessuraMaxima { get; set; } = 25;
+
+        /// <summary>Diferença máxima (cm) entre a espessura de uma parede e a espessura típica do desenho.</summary>
+        public double VariacaoEspessura { get; set; } = 6;
 
         /// <summary>Maior vão de janela aceito (cm); acima disso o buraco separa paredes.</summary>
         public double JanelaMaxima { get; set; } = 600;
+
+        /// <summary>Maior porta aceita (cm); um "vão de porta" maior que isso é pareamento errado.</summary>
+        public double PortaMaxima { get; set; } = 250;
 
         /// <summary>Distância máxima (cm) de um rótulo P*/J* ao centro do vão para decidir o tipo dele.</summary>
         public double DistanciaRotulo { get; set; } = 120;
 
         /// <summary>Paredes mais curtas que isso são ignoradas (cm).</summary>
-        public double ComprimentoMinimo { get; set; } = 5;
+        public double ComprimentoMinimo { get; set; } = 20;
 
         /// <summary>Maior vão sem porta/janela que ainda é tratado como passagem na mesma parede (cm).</summary>
         public double PassagemMaxima { get; set; } = 120;
+
+        /// <summary>
+        /// Pontos (cm) clicados em paredes que NÃO são de alvenaria (drywall, shaft): o trecho entre os
+        /// encontros vizinhos ao ponto não é modulado.
+        /// </summary>
+        public List<(double x, double y)> Exclusoes { get; set; } = new List<(double x, double y)>();
 
         /// <summary>Tolerância geral de desenho (cm).</summary>
         public double Tolerancia { get; set; } = 1;

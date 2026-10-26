@@ -6,7 +6,33 @@ engenheiro antes da fase correspondente.
 
 ---
 
-## 0. Atualização: o que o questionário respondeu (v0.2)
+## 0. Atualização: a modulação de referência do engenheiro (v0.5)
+
+O engenheiro mandou um par de arquivos reais: a arquitetura limpa de um pavimento tipo, do jeito que ele
+recebe, e a 1ª e a 2ª fiada que ele modulou à mão e entregou. As duas fiadas foram lidas peça por peça
+(posição, tipo, quem passa em cada encontro, juntas, graute, nomes, aberturas e cotas) e o plugin foi
+refeito para reproduzir o método dele. Os arquivos ficam fora do repositório.
+
+**O plugin hoje reproduz cerca de 90% das peças dele nas duas fiadas e 60 dos 64 encontros** (quem passa
+em cada um). O que falta vem quase todo de uma porta que não está na arquitetura limpa.
+
+| Interpretação anterior | O que a modulação dele mostrou | Mudança |
+|---|---|---|
+| A arquitetura limpa está em **metros** (unidade `100`) | Está com **1 unidade = 50 cm** (escala 1:50). Lida como metro, as paredes dariam 30 cm e as portas 140–160 cm, que foi o que levou às medições erradas da v0.4.1 | O plugin confere a unidade pela espessura das paredes e sugere a certa |
+| Porta = folha lida pelo arco + 11 | Abertura = **medida nominal + 11** (porta de 80 → 91, de 70 → 81) | `Vao.Nominal` + folga |
+| Janela = vidro + 6 | Abertura = **medida + 1** (150 → 151); não corta a 1ª nem a 2ª fiada | Folga padrão 1 |
+| 34 e bolachas de ajuste empurrados para o **meio da parede** | **Juntos numa ponta do trecho**, junto ao encontro (de preferência onde a parede passa); bolacha só ao lado do 54 ou da parede que atravessa, nunca no canto | Novas regras de ponta no motor |
+| 19 obrigatório junto à porta nas duas fiadas | **Alterna 19 e 39** entre as fiadas na mesma ombreira | Ombreira aceita 19 ou 39 |
+| No L passa a parede **maior**; no T a contínua | Quem passa é o que gasta menos peças especiais no pavimento; no empate, nos T e cruzes, a **vertical** por cima na 1ª fiada | Busca no pavimento inteiro |
+| A porta fica onde o arquiteto desenhou | A porta **anda até 12 cm** para os pedaços fecharem; do lado da dobradiça sempre fica alvenaria | Planejador move as portas |
+| Eixos como estão no desenho | Os eixos dele ficam numa **grade de 5 cm**: tudo fecha com junta de 1 cm | `GradeModular` |
+| Uma parede = um número | Paredes **iguais** têm o mesmo número ("Modulação TIPOS"); apartamentos espelhados recebem a modulação espelhada | `Numeracao.NumerarPorTipo`, `Simetria` |
+| Saída só com blocos e cotas pela face | Pontos de graute em todos os encontros, "PAREDE n", "ABERTURA 91x220", "PAREDE EM DRY WALL", cotas internas por cômodo e título | `Anotador` |
+| Toda parede do layer de alvenaria é alvenaria | Drywall e shafts desenhados no mesmo layer **não são modulados** | O usuário clica nelas (`ALVPLANTA`) |
+
+A lista completa, com o teste de cada regra, está em [REQUISITOS.md](REQUISITOS.md) (origem **R**).
+
+## 0.1 Atualização: o que o questionário respondeu (v0.2)
 
 | Item da análise | Resposta do questionário | O que mudou no código |
 |---|---|---|
@@ -35,7 +61,7 @@ modulação) e a "arquitetura limpa" que o engenheiro extrai dele para modular (
 | Achado na arquitetura limpa | Consequência para o plugin |
 |---|---|
 | Tudo dentro de **um bloco** (`ARQUITETURA`) | Clicar numa linha selecionava o bloco inteiro. **Corrigido:** seleção dentro de blocos e modo por pontos. |
-| Cabeçalho diz **mm**, desenho está em **metros** (39 × 30) | Confirma: sempre perguntar a unidade (aqui, `100`). |
+| Cabeçalho diz **mm**, desenho está em **metros** (39 × 30) | Confirma: sempre perguntar a unidade (aqui, `100`). **Errado:** era 1 unidade = 50 cm (ver a atualização v0.5). |
 | Paredes em **linha dupla** (faces) a **15 e 30 cm**, sem eixo; layer `Alvenaria` | Modo padrão agora é **por pontos** (início/fim numa face + face oposta), e o eixo é calculado. |
 | Faces **quebradas** em cada encontro e janela | Selecionar objeto pega só um pedaço. Os pontos atravessam as quebras. |
 | Janelas: parede interrompida no desenho, com linhas de **peitoril** (`Arq_Peitoril`) e **vidro** (`Arq_Esq_Vidro`) | Na 1ª e 2ª fiada a parede **continua** sob a janela: o usuário seleciona a parede inteira. |
@@ -69,7 +95,7 @@ README. Ele dá exatamente 20 cm de defasagem entre as fiadas nos cantos, T e cr
 | 7 | Bolacha nunca no canto | Bolacha (4 e 9) fora de ponta de porta, encontro e canto. |
 | 8 | Ler o tamanho das portas: vão + 11; janela: vão + 6 | Porta: tamanho da folha lido pelo **arco** (folha 130 → 141 na alvenaria, e não 151 como antes). Janela: tamanho do vidro + 6, centrada, e entra na cota. |
 
-**Medido na planta real:** as portas têm folha de 130 e 150 cm, com abertura de 140 e 160 cm na parede
+**Medido na planta real (errado, a unidade estava trocada: ver a atualização v0.5):** as portas têm folha de 130 e 150 cm, com abertura de 140 e 160 cm na parede
 (a abertura já inclui o marco, folha + 10). Antes o plugin somava +11 em cima da abertura, deixando a
 alvenaria cerca de 10 cm mais larga do que o correto. O vidro das janelas tem exatamente o tamanho da
 abertura.

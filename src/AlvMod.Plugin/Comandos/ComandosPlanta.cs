@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using AlvMod.Core.Catalogo;
 using AlvMod.Core.Modulacao;
@@ -17,13 +18,19 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace AlvMod.Plugin
 {
     /// <summary>
-    /// Pavimento inteiro: lê a arquitetura (paredes pelas faces, portas, janelas, encontros), numera as
-    /// paredes e modula a 1ª fiada (ALVPLANTA) ou a 2ª a partir da 1ª desenhada (ALVPLANTA2).
+    /// Pavimento inteiro, do jeito que o engenheiro modula à mão:
+    ///  - ALVPLANTA lê a arquitetura (paredes pelas faces, portas, janelas, encontros), confere a unidade pela
+    ///    espessura das paredes, deixa marcar o que não é alvenaria (drywall, shaft), põe os eixos na grade de
+    ///    5 cm, decide quem passa em cada encontro e onde cada porta fica (até 12 cm) para tudo fechar com o
+    ///    mínimo de peças especiais, e desenha a 1ª fiada com graute, nomes por tipo, aberturas, cotas e título;
+    ///  - ALVPLANTA2 faz a 2ª fiada em cima da 1ª como ela está desenhada (respeita as edições).
     /// </summary>
     public sealed partial class Comandos
     {
-        private const string LayerNumeracao = "NUMERACAO PAREDES";
         private const string LayerEixos = "ALV-EIXOS";
+
+        /// <summary>Layers que versões anteriores do plugin desenhavam (também apagados ao refazer).</summary>
+        private static readonly string[] LayersAntigos = { "NUMERACAO PAREDES", "COTAS ALVENARIA" };
 
         [CommandMethod("ALVPLANTA")]
         public void PlantaPrimeiraFiada()
@@ -41,42 +48,43 @@ namespace AlvMod.Plugin
             if (sel == null) return;
             Registro.Reiniciar(doc, "ALVPLANTA");
 
-            double fator = ctx.Config.FatorCm;
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                var leitor = new LeitorPlanta(fator);
-                leitor.Ler(tr, sel);
-                var planta = Detectar(ed, leitor, ctx.Config);
-                if (planta == null) return;
+                var leitura = Ler(doc, tr, sel, ctx);
+                if (leitura == null) return;
 
-                var desenhista = new Desenhista(doc.Database, tr, fator);
-                DesenharEixosENumeracao(doc.Database, tr, planta, fator, ctx.Config.Escala, new Vector3d());
+                var conferencia = DesenharEixos(doc.Database, tr, leitura.Planta, ctx.Config.FatorCm, ctx.Config.Escala);
+                ed.WriteMessage($"\n{Resumo(leitura.Planta)}");
+                ed.WriteMessage($"\nEixos e números provisórios desenhados no layer \"{LayerEixos}\" para conferência.");
+                if (!MarcarNaoAlvenaria(doc, tr, sel, ctx, ref leitura, ref conferencia)) return;
 
-                var confirma = Perguntas.SimNao(ed,
-                    $"\n{Resumo(planta)}\nEixos e numeração desenhados nos layers \"{LayerEixos}\" e \"{LayerNumeracao}\". Modular a 1ª fiada?", true);
+                var confirma = Perguntas.SimNao(ed, "\nModular a 1ª fiada?", true);
                 if (confirma != true)
                 {
-                    tr.Commit(); // mantém eixos e numeração para conferência
-                    ed.WriteMessage("\nSó a detecção foi desenhada. Ajuste os layers/desenho e rode ALVPLANTA de novo.");
+                    ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
+                    tr.Commit(); // mantém eixos e números para conferência
+                    ed.WriteMessage("\nSó a detecção foi desenhada. Ajuste e rode ALVPLANTA de novo.");
                     return;
                 }
-                var cotar = Perguntas.SimNao(ed, "\nCotar as paredes?", true);
+                if (!PerguntarJanelas(ed, leitura.Planta, ctx.Config)) return;
+                var cotar = Perguntas.SimNao(ed, "\nCotar (cotas internas por cômodo)?", true);
                 if (cotar == null) return;
+                ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
 
-                var modulador = new Modulador(ctx.Familia);
-                var opF = CriarOpcoesFiadas(ctx);
-                var avisos = new List<string>();
-                var plano = PlanejadorFiadas.Planejar(planta, 1, opF, avisos);
-                var trechos = plano.Trechos;
-                DesenharFixas(desenhista, plano.Fixas, fator);
-                int fechados = ModularEDesenhar(doc, "ALVPLANTA", trechos, fator, desenhista,
-                    t => modulador.PrimeiraFiada(t.Comprimento, t.Pontas));
-                if (cotar.Value) Cotar(desenhista, planta, trechos, plano.Fixas, fator, ctx, opF);
+                double fator = ctx.Config.FatorCm;
+                var plano = Planejar(ctx, leitura.Planta, null);
+                Nomear(ctx, leitura.Planta, plano.Solucao, plano.Modulacao);
+                foreach (var id in conferencia.Nomes) tr.GetObject(id, OpenMode.ForWrite).Erase();
+
+                var desenhista = new Desenhista(doc.Database, tr, fator);
+                var anotador = new Anotador(doc.Database, tr, fator, ctx.Config.Escala);
+                var (fechados, total) = DesenharFiada(doc, "ALVPLANTA", desenhista, plano.Solucao, plano.Modulacao.Fiada1, 1, fator);
+                Anotar(anotador, leitura.Planta, plano.Solucao, plano.Opcoes, ctx, cotar.Value, "Planta de 1ª fiada - Modulação");
 
                 tr.Commit();
-                foreach (var a in avisos) Registro.Adicionar(doc, Gravidade.Aviso, "ALVPLANTA", null, a);
-                Finalizar(ed, fechados, trechos.Count, desenhista, avisos.Count);
+                RegistrarDecisoes(doc, "ALVPLANTA", leitura, plano.Solucao);
+                Finalizar(ed, fechados, total, desenhista, anotador, plano.Solucao);
             }
         }
 
@@ -98,54 +106,353 @@ namespace AlvMod.Plugin
             if (sel == null) return;
             Registro.Reiniciar(doc, "ALVPLANTA2");
 
-            double fator = ctx.Config.FatorCm;
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                var leitor = new LeitorPlanta(fator);
-                leitor.Ler(tr, sel);
-                var planta = Detectar(ed, leitor, ctx.Config);
-                if (planta == null) return;
+                var leitura = Ler(doc, tr, sel, ctx);
+                if (leitura == null) return;
+                double fator = ctx.Config.FatorCm;
+                AplicarQuadroJanelas(leitura.Planta, ctx.Config);
 
-                // Peças da 1ª fiada como estão desenhadas, por parede.
-                var pecas1 = PecasDesenhadas(tr, leitor.Blocos, ctx.Catalogo, fator);
+                // Peças da 1ª fiada como estão desenhadas (com as edições do projetista).
+                var pecas1 = PecasDesenhadas(tr, leitura.Leitor.Blocos, ctx.Catalogo, fator);
                 if (pecas1.Count == 0)
                 {
                     ed.WriteMessage("\nNenhum bloco do catálogo na seleção: rode o ALVPLANTA (1ª fiada) antes.");
                     return;
                 }
 
+                // Quem passa em cada encontro na 1ª fiada desenhada: na 2ª fiada inverte.
+                var fixos = new Dictionary<Encontro, bool>();
+                foreach (var e in leitura.Planta.Encontros)
+                {
+                    var p = pecas1.FirstOrDefault(q => q.X0 - 1 <= e.X && e.X <= q.X1 + 1 && q.Y0 - 1 <= e.Y && e.Y <= q.Y1 + 1);
+                    if (p != null) fixos[e] = !p.Horizontal;
+                }
+
                 var deslocamento = PerguntarDeslocamento(ed, ctx.Config);
                 if (deslocamento == null) return;
-                var cotar = Perguntas.SimNao(ed, "\nCotar as paredes?", true);
+                var cotar = Perguntas.SimNao(ed, "\nCotar (cotas internas por cômodo)?", true);
                 if (cotar == null) return;
 
-                var modulador = new Modulador(ctx.Familia);
-                var opF = CriarOpcoesFiadas(ctx);
-                var avisos = new List<string>();
-                var plano = PlanejadorFiadas.Planejar(planta, 2, opF, avisos);
-                var trechos = plano.Trechos;
+                var plano = Planejar(ctx, leitura.Planta, fixos);
+                Nomear(ctx, leitura.Planta, plano.Solucao, plano.Modulacao);
+
+                // 2ª fiada amarrada nas juntas reais da 1ª desenhada.
+                var fiada2 = plano.Solucao.Fiada2.Trechos.Select(t =>
+                {
+                    var arestas = PlanejadorFiadas.CentrosDeJunta(ArestasDaParede(pecas1, t.Parede), plano.Opcoes.Junta)
+                        .Select(a => a - t.Inicio).ToList();
+                    return (trecho: t, resultado: plano.Modulador.SegundaFiada(t.Comprimento, arestas, t.Pontas));
+                }).ToList();
 
                 var desenhista = new Desenhista(doc.Database, tr, fator, deslocamento.Value);
-                DesenharEixosENumeracao(doc.Database, tr, planta, fator, ctx.Config.Escala, deslocamento.Value);
-                DesenharFixas(desenhista, plano.Fixas, fator);
-                int fechados = ModularEDesenhar(doc, "ALVPLANTA2", trechos, fator, desenhista, t =>
-                {
-                    var arestas = PlanejadorFiadas.CentrosDeJunta(ArestasDaParede(pecas1, t.Parede), opF.Junta)
-                        .Select(a => a - t.Inicio).ToList();
-                    return modulador.SegundaFiada(t.Comprimento, arestas, t.Pontas);
-                });
-                if (cotar.Value) Cotar(desenhista, planta, trechos, plano.Fixas, fator, ctx, opF);
+                var anotador = new Anotador(doc.Database, tr, fator, ctx.Config.Escala, deslocamento.Value);
+                var (fechados, total) = DesenharFiada(doc, "ALVPLANTA2", desenhista, plano.Solucao, fiada2, 2, fator);
+                Anotar(anotador, leitura.Planta, plano.Solucao, plano.Opcoes, ctx, cotar.Value, "Planta de 2ª fiada - Modulação");
                 ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
 
                 tr.Commit();
-                foreach (var a in avisos) Registro.Adicionar(doc, Gravidade.Aviso, "ALVPLANTA2", null, a);
-                ed.WriteMessage($"\n{pecas1.Count} peças da 1ª fiada lidas do desenho.");
-                Finalizar(ed, fechados, trechos.Count, desenhista, avisos.Count);
+                RegistrarDecisoes(doc, "ALVPLANTA2", leitura, plano.Solucao);
+                ed.WriteMessage($"\n{pecas1.Count} peças da 1ª fiada lidas do desenho; {fixos.Count} encontros com a 1ª fiada desenhada.");
+                Finalizar(ed, fechados, total, desenhista, anotador, plano.Solucao);
             }
         }
 
-        // ------------------------------------------------------------------ etapas
+        // ------------------------------------------------------------------ leitura
+
+        private sealed class Leitura
+        {
+            public PlantaDetectada Planta;
+            public LeitorPlanta Leitor;
+            public double AjusteGrade;
+        }
+
+        /// <summary>
+        /// Lê a seleção e detecta as paredes. Confere a unidade pela espessura das paredes (bloco de 14: 14 a 20 cm);
+        /// se não bater, sugere a unidade certa (ex.: arquitetura em 1:50 lida como metro → 50) e lê de novo.
+        /// Põe os eixos na grade de 5 cm e numera provisoriamente.
+        /// </summary>
+        /// <param name="conferirUnidade">Falso ao ler de novo a mesma seleção (a unidade já foi conferida).</param>
+        private static Leitura Ler(Document doc, Transaction tr, ObjectId[] sel, ContextoObra ctx, bool conferirUnidade = true)
+        {
+            var ed = doc.Editor;
+            for (int tentativa = 0; tentativa < 2; tentativa++)
+            {
+                double fator = ctx.Config.FatorCm;
+                var leitor = new LeitorPlanta(fator);
+                leitor.Ler(tr, sel);
+                var op = OpcoesDeteccao(ctx.Config);
+                var planta = DetectorParedes.Detectar(leitor.Segmentos, op, leitor.Rotulos);
+
+                if (DetectorParedes.EspessuraSuspeita(planta) && (conferirUnidade || planta.Paredes.Count == 0))
+                {
+                    ed.WriteMessage(planta.Paredes.Count == 0
+                        ? $"\nNenhuma parede de alvenaria encontrada com a unidade {Perguntas.Num(fator)} (1 unidade = {Perguntas.Num(fator)} cm)."
+                        : $"\nCom a unidade {Perguntas.Num(fator)} as paredes medem {Perguntas.Num(planta.EspessuraTipica)} cm; parede de bloco 14 mede 14 a 20 cm.");
+                    var sugestao = tentativa == 0 && conferirUnidade ? DetectorParedes.SugerirFatorCm(leitor.Segmentos, fator, op) : null;
+                    if (sugestao.HasValue)
+                    {
+                        var usar = Perguntas.SimNao(ed,
+                            $"\nCom a unidade {Perguntas.Num(sugestao.Value)} (1 unidade = {Perguntas.Num(sugestao.Value)} cm) as paredes ficam com espessura de bloco. Usar {Perguntas.Num(sugestao.Value)}?",
+                            true);
+                        if (usar == null) return null;
+                        if (usar == true)
+                        {
+                            ctx.Config.FatorCm = sugestao.Value;
+                            ObraNoDesenho.Gravar(doc.Database, tr, ctx.Config);
+                            continue;
+                        }
+                    }
+                    if (planta.Paredes.Count == 0)
+                    {
+                        ed.WriteMessage("\nConfira a unidade do desenho e se a linha clicada como PAREDE é uma face de parede.");
+                        return null;
+                    }
+                }
+
+                foreach (var a in planta.Avisos) ed.WriteMessage("\n[AVISO] " + a);
+                if (planta.Ignoradas.Count > 0)
+                    ed.WriteMessage($"\n{planta.Ignoradas.Count} pedaço(s) do layer de parede ignorado(s) (escada, mureta, marco): estão no relatório.");
+                double ajuste = GradeModular.Ajustar(planta);
+                if (ajuste > 1.5)
+                    ed.WriteMessage($"\n[AVISO] Eixos movidos até {ajuste:0.#} cm para a grade de 5 cm: a arquitetura não está modulada em algum ponto.");
+                Numeracao.Numerar(planta);
+                return new Leitura { Planta = planta, Leitor = leitor, AjusteGrade = ajuste };
+            }
+            return null;
+        }
+
+        private static OpcoesDeteccao OpcoesDeteccao(ConfigObra cfg)
+        {
+            var op = new OpcoesDeteccao();
+            foreach (var l in cfg.LayersParede) op.LayersParede.Add(l);
+            foreach (var l in cfg.LayersPorta) op.LayersPorta.Add(l);
+            foreach (var l in cfg.LayersJanela) op.LayersJanela.Add(l);
+            foreach (var x in cfg.Exclusoes) op.Exclusoes.Add((x.X, x.Y));
+            return op;
+        }
+
+        /// <summary>
+        /// Paredes que o projetista não vai fazer em bloco (drywall, shaft, mureta): clica em cada uma.
+        /// Ficam gravadas na obra (o ALVPLANTA2 e os próximos ALVPLANTA usam as mesmas).
+        /// </summary>
+        private static bool MarcarNaoAlvenaria(Document doc, Transaction tr, ObjectId[] sel, ContextoObra ctx,
+            ref Leitura leitura, ref Conferencia conferencia)
+        {
+            var ed = doc.Editor;
+            var cfg = ctx.Config;
+            bool mudou = false;
+            if (cfg.Exclusoes.Count > 0)
+            {
+                var manter = Perguntas.SimNao(ed, $"\nEsta obra tem {cfg.Exclusoes.Count} parede(s) marcada(s) como não alvenaria. Manter?", true);
+                if (manter == null) return false;
+                if (manter == false) { cfg.Exclusoes.Clear(); mudou = true; }
+            }
+            var marcar = Perguntas.SimNao(ed, "\nMarcar paredes que NÃO são de alvenaria (drywall, shaft)?", false);
+            if (marcar == null) return false;
+            while (marcar == true)
+            {
+                var r = ed.GetPoint(new PromptPointOptions("\nClique na parede que NÃO é alvenaria <Enter = terminar>: ") { AllowNone = true });
+                if (r.Status == PromptStatus.None) break;
+                if (r.Status != PromptStatus.OK) return false;
+                var tipo = Perguntas.Opcao(ed, "\nÉ", new[] { "Drywall", "Shaft" }, "Drywall");
+                if (tipo == null) return false;
+                var p = r.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                cfg.Exclusoes.Add(new Exclusao { X = p.X * cfg.FatorCm, Y = p.Y * cfg.FatorCm, Tipo = tipo.ToLowerInvariant() });
+                mudou = true;
+            }
+            if (!mudou) return true;
+
+            // Lê de novo sem as paredes marcadas e redesenha a conferência.
+            foreach (var id in conferencia.Eixos.Concat(conferencia.Nomes)) tr.GetObject(id, OpenMode.ForWrite).Erase();
+            var nova = Ler(doc, tr, sel, ctx, conferirUnidade: false);
+            if (nova == null) return false;
+            leitura = nova;
+            conferencia = DesenharEixos(doc.Database, tr, leitura.Planta, cfg.FatorCm, cfg.Escala);
+            ed.WriteMessage($"\n{leitura.Planta.Excluidas.Count} trecho(s) fora da modulação. {Resumo(leitura.Planta)}");
+            return true;
+        }
+
+        /// <summary>
+        /// Quadro de janelas: o desenho só dá a largura (e às vezes errada). Para cada largura desenhada o projetista
+        /// informa "medida x altura / peitoril" (ex.: 150 x 100 / 120), que vai na anotação da abertura e nas cotas.
+        /// </summary>
+        private static bool PerguntarJanelas(Editor ed, PlantaDetectada planta, ConfigObra cfg)
+        {
+            var grupos = planta.Paredes.SelectMany(w => w.Vaos).Where(v => v.Tipo == TipoVao.Janela)
+                .GroupBy(v => Perguntas.Num(Math.Round(v.Largura / 5) * 5)).OrderBy(g => g.Key).ToList();
+            if (grupos.Count == 0) return true;
+            ed.WriteMessage("\nJanelas desenhadas: " + string.Join(", ", grupos.Select(g => $"{g.Key} cm ({g.Count()})")) + ".");
+            bool faltam = grupos.Any(g => !cfg.Janelas.ContainsKey(g.Key));
+            var informar = Perguntas.SimNao(ed, "\nInformar medida x altura / peitoril das janelas (anotação e cotas)?", faltam);
+            if (informar == null) return false;
+            if (informar == true)
+                foreach (var g in grupos)
+                {
+                    cfg.Janelas.TryGetValue(g.Key, out var atual);
+                    var resp = Perguntas.Texto(ed, $"\nJanela desenhada com {g.Key} cm: medida x altura / peitoril (ex.: {g.Key} x 100 / 120)",
+                        atual ?? g.Key);
+                    if (resp == null) return false;
+                    cfg.Janelas[g.Key] = resp;
+                }
+            AplicarQuadroJanelas(planta, cfg);
+            return true;
+        }
+
+        /// <summary>A medida informada no quadro de janelas vale nas cotas (a janela não corta a 1ª/2ª fiada).</summary>
+        private static void AplicarQuadroJanelas(PlantaDetectada planta, ConfigObra cfg)
+        {
+            foreach (var v in planta.Paredes.SelectMany(w => w.Vaos).Where(v => v.Tipo == TipoVao.Janela))
+            {
+                if (!cfg.Janelas.TryGetValue(Perguntas.Num(Math.Round(v.Largura / 5) * 5), out var resp)) continue;
+                var primeiro = System.Text.RegularExpressions.Regex.Match(resp ?? "", @"\d+([.,]\d+)?");
+                if (primeiro.Success &&
+                    double.TryParse(primeiro.Value.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double medida))
+                    v.MedidaInformada = medida;
+            }
+        }
+
+        // ------------------------------------------------------------------ planejamento
+
+        private sealed class Plano
+        {
+            public SolucaoPavimento Solucao;
+            public ModulacaoFiadas Modulacao;
+            public OpcoesFiadas Opcoes;
+            public Modulador Modulador;
+        }
+
+        private static Plano Planejar(ContextoObra ctx, PlantaDetectada planta, IDictionary<Encontro, bool> fixos)
+        {
+            var m = new Modulador(ctx.Familia);
+            var op = CriarOpcoesFiadas(ctx);
+            var sol = PlanejadorFiadas.Resolver(planta, m, op, fixos);
+            return new Plano { Solucao = sol, Modulacao = ModulacaoPavimento.Modular(sol, m, op), Opcoes = op, Modulador = m };
+        }
+
+        /// <summary>Numeração por tipo (paredes iguais com o mesmo número) ou uma por parede, conforme a obra.</summary>
+        private static void Nomear(ContextoObra ctx, PlantaDetectada planta, SolucaoPavimento sol, ModulacaoFiadas mod)
+        {
+            if (ctx.Config.NumeracaoPorTipo) Numeracao.NumerarPorTipo(planta.Paredes, w => Numeracao.Assinatura(sol, mod, w));
+            else Numeracao.Numerar(planta);
+            foreach (var t in sol.Fiada1.Trechos.Concat(sol.Fiada2.Trechos)) t.Nome = t.Parede.Nome;
+        }
+
+        private static OpcoesFiadas CriarOpcoesFiadas(ContextoObra ctx) => new OpcoesFiadas
+        {
+            Largura = LarguraParede(ctx),
+            Junta = ctx.Familia.Junta,
+            FolgaPorta = ctx.Config.FolgaPorta,
+            FolgaJanela = ctx.Config.FolgaJanela,
+            DeslocamentoMaximoPorta = ctx.Config.DeslocamentoMaximoPorta,
+            // 54 fixo e centrado nos encontros em T e em cruz (se a obra usa o 54).
+            BlocoEncontro = ctx.Familia.Pecas.FirstOrDefault(p => p.Funcao == FuncaoPeca.Encontro && p.Habilitada)
+        };
+
+        // ------------------------------------------------------------------ desenho
+
+        /// <summary>Peças fixas (54) e peças de cada trecho da fiada; trechos com problema vão para o relatório.</summary>
+        private static (int fechados, int total) DesenharFiada(Document doc, string comando, Desenhista desenhista,
+            SolucaoPavimento sol, List<(TrechoFiada trecho, ResultadoModulacao resultado)> fiada, int numero, double fator)
+        {
+            foreach (var f in sol.Plano(numero).Fixas)
+            {
+                var (x1, y1) = f.Parede.Ponto(f.Inicio);
+                var (x2, y2) = f.Parede.Ponto(f.Fim);
+                var geo = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
+                desenhista.Desenhar(geo, new PecaPosicionada { Peca = f.Peca, Inicio = 0 });
+            }
+
+            int fechados = 0;
+            foreach (var (t, r) in fiada)
+            {
+                Registro.Adicionar(doc, MemoriaCalculo.Linha(comando, t.Nome, numero, t.Comprimento, t.Pontas, r));
+                var geo = Geometrico(t, fator);
+                foreach (var p in r.Pecas) desenhista.Desenhar(geo, p);
+                if (r.Sucesso) { fechados++; if (r.Avisos.Count == 0) continue; }
+                Relatar(doc, comando, t.Nome, geo, r);
+            }
+            return (fechados, fiada.Count);
+        }
+
+        /// <summary>Graute nos encontros, nome das paredes, aberturas, drywall, cotas internas e título.</summary>
+        private static void Anotar(Anotador an, PlantaDetectada planta, SolucaoPavimento sol, OpcoesFiadas op,
+            ContextoObra ctx, bool cotar, string titulo)
+        {
+            foreach (var (x, y) in sol.Grautes) an.Graute(x, y);
+            foreach (var w in planta.Paredes) an.Rotulo(planta, w);
+            foreach (var w in planta.Paredes)
+                foreach (var v in w.Vaos) an.Abertura(planta, w, v, op, ctx.Config);
+            foreach (var ex in planta.Excluidas)
+            {
+                var marcado = ctx.Config.Exclusoes.FirstOrDefault(x =>
+                    ex.orientacao == Orientacao.Horizontal
+                        ? Math.Abs(x.Y - ex.coord) < 20 && x.X >= ex.inicio - 5 && x.X <= ex.fim + 5
+                        : Math.Abs(x.X - ex.coord) < 20 && x.Y >= ex.inicio - 5 && x.Y <= ex.fim + 5);
+                if (marcado == null || marcado.Tipo == "drywall") an.Drywall(ex);
+            }
+            if (cotar) an.CotasInternas(Anotacoes.CotasInternas(planta, op), op.Largura);
+
+            double xMax = planta.Paredes.Max(w => w.Horizontal ? w.Fim : w.Coord) + op.Largura / 2;
+            double yMin = planta.Paredes.Min(w => w.Horizontal ? w.Coord : w.Inicio) - op.Largura / 2;
+            an.Titulo(titulo, xMax, yMin);
+        }
+
+        /// <summary>Trecho do núcleo (cm, ao longo do eixo) → trecho no desenho (unidades do desenho).</summary>
+        private static Trecho Geometrico(TrechoFiada t, double fator)
+        {
+            var (x1, y1) = t.Parede.Ponto(t.Inicio);
+            var (x2, y2) = t.Parede.Ponto(t.Fim);
+            return new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
+        }
+
+        private sealed class Conferencia
+        {
+            public List<ObjectId> Eixos = new List<ObjectId>();
+            public List<ObjectId> Nomes = new List<ObjectId>();
+        }
+
+        /// <summary>Eixos das paredes detectadas e números provisórios (para conferir antes de modular).</summary>
+        private static Conferencia DesenharEixos(Database db, Transaction tr, PlantaDetectada planta, double fator, double escala)
+        {
+            var c = new Conferencia();
+            var espaco = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+            Camadas.Garantir(db, tr, LayerEixos, 9);
+            var estilo = Camadas.Texto(db, tr);
+            double altura = 2.5 * escala / (10.0 * fator); // 2,5 mm no papel
+
+            foreach (var w in planta.Paredes)
+            {
+                var (x1, y1) = w.Ponto(w.Inicio);
+                var (x2, y2) = w.Ponto(w.Fim);
+                var eixo = new Line(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0)) { Layer = LayerEixos };
+                c.Eixos.Add(espaco.AppendEntity(eixo));
+                tr.AddNewlyCreatedDBObject(eixo, true);
+
+                var (mx, my) = w.Ponto((w.Inicio + w.Fim) / 2);
+                double afast = 10 / fator;
+                var pos = w.Horizontal ? new Point3d(mx / fator, my / fator + afast, 0) : new Point3d(mx / fator - afast, my / fator, 0);
+                var texto = new DBText
+                {
+                    TextString = w.Nome,
+                    Height = altura,
+                    Layer = LayerEixos,
+                    TextStyleId = estilo,
+                    Rotation = w.Horizontal ? 0 : Math.PI / 2,
+                    HorizontalMode = TextHorizontalMode.TextCenter,
+                    VerticalMode = TextVerticalMode.TextBottom,
+                    AlignmentPoint = pos,
+                    Position = pos
+                };
+                c.Nomes.Add(espaco.AppendEntity(texto));
+                tr.AddNewlyCreatedDBObject(texto, true);
+                texto.AdjustAlignment(db);
+            }
+            return c;
+        }
+
+        // ------------------------------------------------------------------ etapas e conferência
 
         /// <summary>
         /// Detecção assistida: o usuário clica uma linha de cada tipo (parede, porta, janela) e o plugin
@@ -195,13 +502,13 @@ namespace AlvMod.Plugin
         }
 
         /// <summary>
-        /// Rodar o ALVPLANTA de novo na mesma planta duplicaria blocos, eixos, numeração e cotas: se a seleção
-        /// tem objetos de uma modulação anterior, pergunta se apaga. Devolve a seleção sem eles (ou como
-        /// estava, se o usuário preferir manter), ou nulo se cancelou.
+        /// Rodar o ALVPLANTA de novo na mesma planta duplicaria blocos, graute, nomes, aberturas e cotas: se a seleção
+        /// tem objetos de uma modulação anterior, pergunta se apaga. Devolve a seleção sem eles (ou como estava, se
+        /// o usuário preferir manter), ou nulo se cancelou.
         /// </summary>
         private static ObjectId[] OferecerApagarAnterior(Document doc, ObjectId[] sel, CatalogoBlocos catalogo)
         {
-            var layers = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { LayerEixos, LayerNumeracao, Desenhista.LayerCotas };
+            var layers = new HashSet<string>(Anotador.Layers.Concat(LayersAntigos).Concat(new[] { LayerEixos }), StringComparer.OrdinalIgnoreCase);
             var anteriores = new List<ObjectId>();
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
@@ -213,7 +520,9 @@ namespace AlvMod.Plugin
                     if (!nosso && ent is BlockReference br)
                     {
                         var defId = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
-                        nosso = catalogo.BuscarPorBloco(((BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead)).Name) != null;
+                        string nome = ((BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead)).Name;
+                        nosso = catalogo.BuscarPorBloco(nome) != null ||
+                                Familia.NormalizarNome(nome) == Familia.NormalizarNome(Anotador.BlocoGraute);
                     }
                     if (nosso) anteriores.Add(id);
                 }
@@ -221,8 +530,8 @@ namespace AlvMod.Plugin
             if (anteriores.Count == 0) return sel;
 
             var apagar = Perguntas.SimNao(doc.Editor,
-                $"\nA seleção já tem {anteriores.Count} objeto(s) de uma modulação anterior (blocos do catálogo, eixos, " +
-                "numeração, cotas). Apagar antes de modular de novo?", true);
+                $"\nA seleção já tem {anteriores.Count} objeto(s) de uma modulação anterior (blocos, graute, nomes, aberturas, " +
+                "cotas, eixos). Apagar antes de modular de novo?", true);
             if (apagar == null) return null;
             if (!apagar.Value) return sel;
 
@@ -243,161 +552,28 @@ namespace AlvMod.Plugin
             return r.Status == PromptStatus.OK ? r.Value.GetObjectIds() : null;
         }
 
-        private static PlantaDetectada Detectar(Editor ed, LeitorPlanta leitor, ConfigObra cfg)
-        {
-            var op = new OpcoesDeteccao();
-            foreach (var l in cfg.LayersParede) op.LayersParede.Add(l);
-            foreach (var l in cfg.LayersPorta) op.LayersPorta.Add(l);
-            foreach (var l in cfg.LayersJanela) op.LayersJanela.Add(l);
-
-            var planta = DetectorParedes.Detectar(leitor.Segmentos, op, leitor.Rotulos);
-            foreach (var a in planta.Avisos) ed.WriteMessage("\n[AVISO] " + a);
-            if (planta.Paredes.Count == 0)
-            {
-                ed.WriteMessage($"\nNenhuma parede encontrada nos layers {string.Join(", ", cfg.LayersParede)} " +
-                                "(paredes pelas duas faces, ortogonais, 5 a 35 cm de espessura).");
-                var sugestao = DetectorParedes.SugerirFatorCm(leitor.Segmentos, cfg.FatorCm, op);
-                ed.WriteMessage(sugestao.HasValue
-                    ? $"\nCom a unidade {Perguntas.Num(sugestao.Value)} as paredes aparecem: rode de novo e responda " +
-                      $"{Perguntas.Num(sugestao.Value)} em \"Quantos cm vale 1 unidade do desenho\" (agora está {Perguntas.Num(cfg.FatorCm)})."
-                    : "\nConfira a unidade do desenho (1 = cm, 100 = metro) e se a linha clicada é uma face de parede.");
-                return null;
-            }
-            Numeracao.Numerar(planta);
-            return planta;
-        }
-
         private static string Resumo(PlantaDetectada p)
         {
             var vaos = p.Paredes.SelectMany(w => w.Vaos).ToList();
-            return $"Detectado: {p.Paredes.Count} paredes; encontros L {p.Encontros.Count(e => e.Tipo == TipoEncontro.L)}, " +
+            return $"Detectado: {p.Paredes.Count} paredes de {Perguntas.Num(p.EspessuraTipica)} cm; encontros L {p.Encontros.Count(e => e.Tipo == TipoEncontro.L)}, " +
                    $"T {p.Encontros.Count(e => e.Tipo == TipoEncontro.T)}, X {p.Encontros.Count(e => e.Tipo == TipoEncontro.X)}; " +
                    $"{vaos.Count(v => v.Tipo == TipoVao.Porta)} portas, {vaos.Count(v => v.Tipo == TipoVao.Janela)} janelas, " +
                    $"{vaos.Count(v => v.Tipo == TipoVao.Passagem)} passagens.";
         }
 
-        private static OpcoesFiadas CriarOpcoesFiadas(ContextoObra ctx) => new OpcoesFiadas
+        /// <summary>Decisões do planejamento que o projetista deve conhecer (vão para o relatório).</summary>
+        private static void RegistrarDecisoes(Document doc, string comando, Leitura leitura, SolucaoPavimento sol)
         {
-            Largura = LarguraParede(ctx),
-            Junta = ctx.Familia.Junta,
-            FolgaPorta = ctx.Config.FolgaPorta,
-            FolgaJanela = ctx.Config.FolgaJanela,
-            // 54 fixo e centrado nos encontros em T e em cruz (se a obra usa o 54).
-            BlocoEncontro = ctx.Familia.Pecas.FirstOrDefault(p => p.Funcao == FuncaoPeca.Encontro && p.Habilitada)
-        };
-
-        /// <summary>Desenha as peças fixas (o 54 centrado nos encontros em T e em cruz).</summary>
-        private static void DesenharFixas(Desenhista desenhista, List<PecaFixa> fixas, double fator)
-        {
-            foreach (var f in fixas)
-            {
-                var (x1, y1) = f.Parede.Ponto(f.Inicio);
-                var (x2, y2) = f.Parede.Ponto(f.Fim);
-                var geo = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
-                desenhista.Desenhar(geo, new PecaPosicionada { Peca = f.Peca, Inicio = 0 });
-            }
-        }
-
-        private static int ModularEDesenhar(Document doc, string comando, List<TrechoFiada> trechos, double fator,
-            Desenhista desenhista, Func<TrechoFiada, ResultadoModulacao> modular)
-        {
-            int fechados = 0;
-            foreach (var t in trechos)
-            {
-                var r = modular(t);
-                Registro.Adicionar(doc, MemoriaCalculo.Linha(comando, t.Nome, t.Fiada, t.Comprimento, t.Pontas, r));
-                var geo = Geometrico(t, fator);
-                foreach (var p in r.Pecas) desenhista.Desenhar(geo, p);
-                if (r.Sucesso) { fechados++; if (r.Avisos.Count == 0) continue; }
-                if (r.Pecas.Count == 0 && t.Comprimento < 40)
-                    r.Mensagem = $"boneca de {t.Comprimento:0.#} cm entre porta e encontro: nenhum bloco cabe pelas regras " +
-                                 "(19 na porta, 34/39 no encontro); resolver à mão ou ajustar a posição da porta. " + r.Mensagem;
-                Relatar(doc, comando, t.Nome, geo, r);
-            }
-            return fechados;
-        }
-
-        /// <summary>Trecho do núcleo (cm, ao longo do eixo) → trecho no desenho (unidades do desenho).</summary>
-        private static Trecho Geometrico(TrechoFiada t, double fator)
-        {
-            var (x1, y1) = t.Parede.Ponto(t.Inicio);
-            var (x2, y2) = t.Parede.Ponto(t.Fim);
-            return new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
-        }
-
-        /// <summary>
-        /// Cota corrida de cada parede, pela face: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
-        /// As janelas não cortam a fiada, mas entram na cota.
-        /// </summary>
-        private static void Cotar(Desenhista desenhista, PlantaDetectada planta, List<TrechoFiada> trechos, List<PecaFixa> fixas,
-            double fator, ContextoObra ctx, OpcoesFiadas opF)
-        {
-            foreach (var w in trechos.Select(t => t.Parede).Concat(fixas.Select(f => f.Parede)).Distinct())
-            {
-                var (x1, y1) = w.Ponto(w.Inicio);
-                var (x2, y2) = w.Ponto(w.Fim);
-                var referencia = new Trecho(new Point3d(x1 / fator, y1 / fator, 0), new Point3d(x2 / fator, y2 / fator, 0));
-                var pontos = PlanejadorFiadas.PontosDeCota(w, trechos, opF, fixas).Select(t =>
-                {
-                    var (x, y) = w.Ponto(t);
-                    return new Point3d(x / fator, y / fator, 0);
-                }).ToList();
-                desenhista.CotarPontos(referencia, pontos, ctx.Config.Escala, LarguraParede(ctx));
-            }
-        }
-
-        private static void DesenharEixosENumeracao(Database db, Transaction tr, PlantaDetectada planta, double fator,
-            double escala, Vector3d deslocamento)
-        {
-            var espaco = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-            GarantirLayer(db, tr, LayerEixos, 9);
-            GarantirLayer(db, tr, LayerNumeracao, 1);
-            double altura = 2.5 * escala / (10.0 * fator); // 2,5 mm no papel
-
-            foreach (var w in planta.Paredes)
-            {
-                var (x1, y1) = w.Ponto(w.Inicio);
-                var (x2, y2) = w.Ponto(w.Fim);
-                var eixo = new Line(new Point3d(x1 / fator, y1 / fator, 0) + deslocamento,
-                    new Point3d(x2 / fator, y2 / fator, 0) + deslocamento) { Layer = LayerEixos };
-                espaco.AppendEntity(eixo);
-                tr.AddNewlyCreatedDBObject(eixo, true);
-
-                // Nome do lado de cima (horizontais) / da esquerda (verticais), afastado da face.
-                var (mx, my) = w.Ponto((w.Inicio + w.Fim) / 2);
-                double afast = (w.Espessura / 2 + 3) / fator + altura * 0.3;
-                var pos = w.Horizontal
-                    ? new Point3d(mx / fator, my / fator + afast, 0)
-                    : new Point3d(mx / fator - afast, my / fator, 0);
-                var texto = new DBText
-                {
-                    TextString = w.Nome,
-                    Height = altura,
-                    Layer = LayerNumeracao,
-                    Rotation = w.Horizontal ? 0 : Math.PI / 2,
-                    HorizontalMode = TextHorizontalMode.TextCenter,
-                    VerticalMode = TextVerticalMode.TextBottom,
-                    AlignmentPoint = pos + deslocamento,
-                    Position = pos + deslocamento
-                };
-                espaco.AppendEntity(texto);
-                tr.AddNewlyCreatedDBObject(texto, true);
-                texto.AdjustAlignment(db);
-            }
-        }
-
-        private static void GarantirLayer(Database db, Transaction tr, string nome, short cor)
-        {
-            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-            if (lt.Has(nome)) return;
-            lt.UpgradeOpen();
-            var l = new LayerTableRecord
-            {
-                Name = nome,
-                Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, cor)
-            };
-            lt.Add(l);
-            tr.AddNewlyCreatedDBObject(l, true);
+            foreach (var a in sol.Avisos) Registro.Adicionar(doc, Gravidade.Aviso, comando, null, a);
+            foreach (var a in leitura.Planta.Ignoradas) Registro.Adicionar(doc, Gravidade.Aviso, comando, null, "Ignorado: " + a);
+            if (leitura.AjusteGrade > 0.05)
+                Registro.Adicionar(doc, Gravidade.Aviso, comando, null,
+                    $"Eixos ajustados até {leitura.AjusteGrade:0.#} cm para a grade de 5 cm (as paredes fecham com juntas de 1 cm).");
+            foreach (var w in leitura.Planta.Paredes)
+                foreach (var v in w.Vaos.Where(v => v.Tipo == TipoVao.Porta && Math.Abs(v.Deslocamento) >= 0.5))
+                    Registro.Adicionar(doc, Gravidade.Aviso, comando, w.Nome,
+                        $"Porta de {Perguntas.Num(v.Nominal)} deslocada {Perguntas.Num(Math.Round(v.Deslocamento, 1))} cm " +
+                        "(ao longo da parede) para os pedaços dos dois lados fecharem com blocos inteiros.");
         }
 
         /// <summary>Peça desenhada da 1ª fiada: retângulo em cm e se está alinhada na horizontal.</summary>
@@ -407,6 +583,10 @@ namespace AlvMod.Plugin
             public bool Horizontal;
         }
 
+        /// <summary>
+        /// Blocos do catálogo na seleção, como retângulos em cm. A direção vem das medidas da peça (a bolacha é
+        /// mais curta que larga e pode estar desenhada "em pé"), não da rotação do bloco.
+        /// </summary>
         private static List<PecaDesenhada> PecasDesenhadas(Transaction tr, List<BlockReference> blocos,
             CatalogoBlocos catalogo, double fator)
         {
@@ -415,21 +595,17 @@ namespace AlvMod.Plugin
             {
                 var defId = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
                 var nome = ((BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead)).Name;
-                if (catalogo.BuscarPorBloco(nome) == null) continue;
+                var peca = catalogo.BuscarPorBloco(nome);
+                if (peca == null) continue;
 
                 var cantos = Geometria.Cantos(br, tr);
                 if (cantos.Count == 0) continue;
-                double dx = Math.Cos(br.Rotation), dy = Math.Sin(br.Rotation);
-                bool horizontal = Math.Abs(dy) < 0.1, vertical = Math.Abs(dx) < 0.1;
-                if (!horizontal && !vertical) continue; // parede inclinada: fora da leitura automática
-                pecas.Add(new PecaDesenhada
-                {
-                    X0 = cantos.Min(c => c.X) * fator,
-                    Y0 = cantos.Min(c => c.Y) * fator,
-                    X1 = cantos.Max(c => c.X) * fator,
-                    Y1 = cantos.Max(c => c.Y) * fator,
-                    Horizontal = horizontal
-                });
+                double x0 = cantos.Min(c => c.X) * fator, x1 = cantos.Max(c => c.X) * fator;
+                double y0 = cantos.Min(c => c.Y) * fator, y1 = cantos.Max(c => c.Y) * fator;
+                double erroH = Math.Abs(x1 - x0 - peca.Comprimento) + Math.Abs(y1 - y0 - peca.Largura);
+                double erroV = Math.Abs(y1 - y0 - peca.Comprimento) + Math.Abs(x1 - x0 - peca.Largura);
+                if (Math.Min(erroH, erroV) > 4) continue; // inclinada ou fora de escala: fora da leitura automática
+                pecas.Add(new PecaDesenhada { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Horizontal = erroH <= erroV });
             }
             return pecas;
         }
@@ -450,17 +626,15 @@ namespace AlvMod.Plugin
             return arestas;
         }
 
-        private static void Finalizar(Editor ed, int fechados, int total, Desenhista d, int avisos)
+        private static void Finalizar(Editor ed, int fechados, int total, Desenhista d, Anotador an, SolucaoPavimento sol)
         {
-            ed.WriteMessage($"\n{fechados} de {total} trecho(s) fecharam exatamente; {d.PecasInseridas} peça(s) inseridas.");
-            if (avisos > 0) ed.WriteMessage($"\n{avisos} aviso(s) registrados.");
-            if (d.BlocosProvisorios.Count > 0)
-                ed.WriteMessage("\n[AVISO] Blocos criados como retângulo provisório (não existiam no desenho): " +
-                                string.Join(", ", d.BlocosProvisorios));
-            foreach (var par in d.BlocosAjustados)
-                ed.WriteMessage($"\n[AVISO] Bloco {par.Key} {par.Value}: escala ajustada na inserção para as peças ficarem a 1 cm.");
+            ed.WriteMessage($"\n{fechados} de {total} trecho(s) fecharam exatamente; {d.PecasInseridas} peça(s), " +
+                            $"{an.Grautes} ponto(s) de graute e {an.Cotas} cota(s).");
+            foreach (var a in sol.Avisos.Where(a => a.Contains("simétrico"))) ed.WriteMessage("\n" + a);
+            AvisarBlocos(ed, d);
             if (fechados < total)
                 ed.WriteMessage("\nTrechos que não fecharam estão no relatório: ALVRELATORIO.");
+            ed.WriteMessage("\nDecisões (portas deslocadas, encontros, ajustes) e a memória de cálculo: ALVRELATORIO.");
         }
     }
 }

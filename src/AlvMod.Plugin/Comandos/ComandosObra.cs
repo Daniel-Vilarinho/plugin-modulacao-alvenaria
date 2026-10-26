@@ -84,13 +84,24 @@ namespace AlvMod.Plugin
                 : fora.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                     .Where(c => familia.Buscar(c) != null).Select(c => familia.Buscar(c).Codigo).Distinct().ToList();
 
-            // Folga de marco (respostas do engenheiro: porta = tamanho da folha + 11, janela = vidro + 6).
-            var folgaPorta = Perguntas.Numero(ed, "\nFolga de marco das PORTAS, somada ao tamanho da folha (cm)", cfg.FolgaPorta, permiteZero: true);
+            // Abertura na alvenaria = medida nominal + folga (como o engenheiro: porta de 80 → 91, janela de 150 → 151).
+            var folgaPorta = Perguntas.Numero(ed, "\nFolga das PORTAS, somada à medida nominal (cm)", cfg.FolgaPorta, permiteZero: true);
             if (folgaPorta == null) return false;
-            var folgaJanela = Perguntas.Numero(ed, "\nFolga de marco das JANELAS, somada ao tamanho do vidro (cm)", cfg.FolgaJanela, permiteZero: true);
+            var folgaJanela = Perguntas.Numero(ed, "\nFolga das JANELAS, somada à medida nominal (cm)", cfg.FolgaJanela, permiteZero: true);
             if (folgaJanela == null) return false;
+            var deslocamento = Perguntas.Numero(ed,
+                "\nQuanto a porta pode andar ao longo da parede para os pedaços fecharem com blocos inteiros (cm)",
+                cfg.DeslocamentoMaximoPorta, permiteZero: true);
+            if (deslocamento == null) return false;
+            var altura = Perguntas.Numero(ed, "\nAltura das portas, na anotação da abertura (cm)", cfg.AlturaPorta);
+            if (altura == null) return false;
+            var porTipo = Perguntas.SimNao(ed, "\nNumerar as paredes por tipo (paredes iguais com o mesmo número)?", cfg.NumeracaoPorTipo);
+            if (porTipo == null) return false;
             cfg.FolgaPorta = folgaPorta.Value;
             cfg.FolgaJanela = folgaJanela.Value;
+            cfg.DeslocamentoMaximoPorta = deslocamento.Value;
+            cfg.AlturaPorta = altura.Value;
+            cfg.NumeracaoPorTipo = porTipo.Value;
 
             var precos = Perguntas.SimNao(ed, "\nInformar preços dos blocos (para o quantitativo)?", false);
             if (precos == null) return false;
@@ -223,7 +234,7 @@ namespace AlvMod.Plugin
             if (layer == null) return false;
             var cor = Perguntas.Inteiro(ed, "\nCor do layer (1–255)", nova ? 7 : p.Cor, 1);
             if (cor == null) return false;
-            var custo = Perguntas.Inteiro(ed, "\nCusto para o motor (menor = preferida; padrão: 39 = 10, 34 = 45, 19 = 60, bolachas 80–90)",
+            var custo = Perguntas.Inteiro(ed, "\nCusto para o motor (menor = preferida; padrão: 39 = 10, 34 = 45, 19 = 60, bolachas 150–160)",
                 nova ? CatalogoPadrao.CustoSugerido(p.Funcao, p.Comprimento) : p.Custo);
             if (custo == null) return false;
             var graute = Perguntas.SimNao(ed, "\nGrauteável?", nova ? p.Funcao != FuncaoPeca.Compensador : p.Grauteavel);

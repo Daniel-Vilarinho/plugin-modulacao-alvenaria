@@ -1,7 +1,8 @@
 # AlvMod — modulação de alvenaria autoportante para AutoCAD
 
 Plugin para AutoCAD (2018 em diante; não roda no AutoCAD LT) que gera a 1ª e a 2ª fiada de
-alvenaria autoportante, cota as paredes, gera o quantitativo de blocos (Excel) e o relatório de
+alvenaria autoportante do jeito que o engenheiro modula à mão — blocos, pontos de graute, nome das
+paredes, aberturas, cotas internas e título —, além do quantitativo de blocos (Excel) e do relatório de
 inconsistências com a memória de cálculo (Word).
 
 - Requisitos do cliente, onde cada um está no código e qual teste prova: [docs/REQUISITOS.md](docs/REQUISITOS.md)
@@ -32,60 +33,68 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 ## Fluxo de trabalho: pavimento inteiro (recomendado)
 
 1. **`ALVPLANTA`** na arquitetura limpa:
-   - pergunta a unidade e a escala;
+   - pergunta a **unidade** (quantos cm vale 1 unidade do desenho) e a escala. Arquitetura em 1:50 com
+     1 unidade = 50 cm usa `50`; se a unidade estiver errada, o plugin percebe pela espessura das
+     paredes (bloco 14 = parede de 14 a 20 cm) e **sugere a certa**;
    - pede para **clicar uma linha de parede, uma de porta e uma de janela**, para aprender os layers
      daquele arquiteto (Enter reaproveita os da obra);
    - pede para **selecionar o pavimento** com uma janela de seleção. Se a seleção já tem uma
-     modulação anterior (blocos, eixos, numeração, cotas), pergunta se apaga antes de refazer.
-
-   Se nenhuma parede for encontrada, o plugin diz qual unidade encontraria as paredes (ex.: `100`
-   para desenho em metros). O plugin então detecta paredes, portas, janelas e encontros (L/T/X), **numera as paredes** e
-   desenha os eixos para conferência. Depois pergunta se pode modular e, com Sim, desenha a
-   **1ª fiada do pavimento todo**, com cotas.
+     modulação anterior (blocos, graute, nomes, aberturas, cotas, eixos), pergunta se apaga antes de refazer;
+   - detecta paredes, portas, janelas e encontros (L/T/X), põe os eixos na **grade de 5 cm** e desenha
+     os eixos e números provisórios para conferência (layer `ALV-EIXOS`);
+   - pergunta se há paredes que **não são de alvenaria** (drywall, shaft): clique em cada uma. Elas saem
+     da modulação e ficam gravadas na obra;
+   - pergunta se pode modular, o **quadro de janelas** ("medida x altura / peitoril" de cada largura
+     desenhada) e se é para cotar;
+   - desenha a **1ª fiada do pavimento todo**: blocos, pontos de graute nos encontros, "PAREDE n" (paredes
+     iguais com o mesmo número), aberturas ("ABERTURA 91x220"), "PAREDE EM DRY WALL", cotas internas e
+     o título "Planta de 1ª fiada - Modulação".
 2. Confira e edite a 1ª fiada à mão.
 3. **`ALVPLANTA2`**: selecione a planta da 1ª fiada (arquitetura + blocos já editados) e indique um
    ponto nela e o correspondente na planta da 2ª fiada. O plugin desenha a **2ª fiada do pavimento
-   todo**, lendo a 1ª como ela está, com numeração e cotas.
-4. `ALVQUANT` e `ALVRELATORIO` para o quantitativo e as paredes que não fecharam.
+   todo**, lendo a 1ª como ela está (quem passa em cada encontro e as juntas), com as mesmas anotações.
+4. `ALVQUANT` e `ALVRELATORIO` para o quantitativo, as decisões (portas deslocadas, eixos ajustados) e a
+   memória de cálculo.
 
-**Regras dos encontros (amarração direta):**
-- Em cada encontro passa direto **uma** parede, e ela se alterna entre as fiadas. Na 1ª fiada
-  passa a parede que continua ou a maior (questionário, item 17); na 2ª, a perpendicular a ela.
-- A parede que passa avança até a face externa da outra. A que não passa encosta nela, com 1 cm de
-  junta.
-- **Bonecas** curtas entre uma porta e um encontro (ex.: 16–31 cm), onde nenhum bloco cabe pelas regras,
-  ficam vazias e vão para o relatório para resolver à mão (ou mover a porta).
+**Como o plugin decide (o método do engenheiro):**
+- Em cada encontro uma direção fica **por cima** na 1ª fiada e a outra na 2ª. O plugin escolhe, para o
+  pavimento inteiro, a combinação que gasta **menos peças especiais**; no empate, nos T e cruzes, a
+  parede vertical fica por cima na 1ª fiada.
+- Cada **porta pode andar até 12 cm** ao longo da parede para os pedaços dos dois lados fecharem com
+  blocos inteiros; do lado da dobradiça sempre fica alvenaria. O relatório diz quanto cada porta andou.
+- **Apartamentos espelhados** recebem a modulação espelhada.
 
 ## Fluxo de trabalho: parede por parede
 
-1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças
-   que a construtora **não** usa, a folga de marco (porta + 11, janela + 6) e, se houver, os preços. Isso fica gravado **dentro do DWG**. Se você
-   esquecer, o `ALV1FIADA` pergunta na primeira vez.
-2. **`ALV1FIADA`**: pergunta a unidade (arquitetura em metros = `100`) e a escala. Depois pede a
-   parede **por pontos**, com OSNAP: o **início** e o **fim** numa face, e **um ponto na face
-   oposta**. O plugin calcula o eixo, então funciona com a parede em linha dupla, dentro do bloco
-   da arquitetura e atravessando janelas. Se a parede for cortada por porta, pede o próximo segmento
-   (Enter na face oposta reaproveita a espessura) e pergunta se cada vão é **porta, janela ou
-   passagem** e se as pontas da parede encostam em outra parede (canto, T). A janela não corta a
-   1ª fiada, mas entra na cota. Por fim, desenha a 1ª fiada e as cotas. As opções `Eixo` e `Faces` permitem clicar
-   linhas em vez de pontos, inclusive dentro de blocos.
+1. **`ALVOBRA`**: escolhe a família da obra (concreto 39 ou outra cadastrada), as peças que a
+   construtora **não** usa, as folgas (porta = medida + 11, janela = medida + 1), quanto a porta pode
+   andar (12 cm), a altura das portas (220), a numeração por tipo e, se houver, os preços. Isso fica
+   gravado **dentro do DWG**. Se você esquecer, os comandos perguntam na primeira vez.
+2. **`ALV1FIADA`**: pede a parede **por pontos**, com OSNAP: o **início** e o **fim** numa face, e
+   **um ponto na face oposta**. O plugin calcula o eixo, então funciona com a parede em linha dupla,
+   dentro do bloco da arquitetura e atravessando janelas. Se a parede for cortada por porta, pede o
+   próximo segmento (Enter na face oposta reaproveita a espessura) e pergunta se cada vão é **porta,
+   janela ou passagem** e a **medida nominal** (Enter = o vão desenhado arredondado). Depois pergunta o
+   que a parede faz em cada ponta: **passa** no encontro, **encosta** na outra, termina **livre** ou numa
+   **porta**. A janela não corta a 1ª fiada, mas entra na cota. As opções `Eixo` e `Faces` permitem
+   clicar linhas em vez de pontos, inclusive dentro de blocos.
 3. Confira e edite a 1ª fiada à mão, se precisar.
-4. **`ALV2FIADA`**: pede o eixo, o que existe em cada ponta (parede, ponta livre, porta ou passagem) e as
-   peças da 1ª fiada **como estão desenhadas**. Depois pede um ponto na planta da 1ª fiada e o ponto correspondente na planta da 2ª, e
-   desenha a 2ª fiada lá, com cotas. Na próxima parede, basta dar Enter para usar o mesmo deslocamento.
+4. **`ALV2FIADA`**: pede o eixo, o que a parede faz em cada ponta **nesta 2ª fiada** e as peças da 1ª
+   fiada **como estão desenhadas**. Depois pede um ponto na planta da 1ª fiada e o correspondente na da
+   2ª, e desenha a 2ª fiada lá, com cotas. Na próxima parede, Enter usa o mesmo deslocamento.
 5. **`ALVQUANT`**: quantitativo de blocos em CSV, que abre no Excel, com total em R$ se houver preços.
-6. **`ALVRELATORIO`**: relatório .docx com as paredes que não fecharam e a **memória de cálculo**
-   (cada trecho: comprimento, pontas, peças em ordem e resultado).
+6. **`ALVRELATORIO`**: relatório .docx com as paredes que não fecharam, as decisões e a **memória de
+   cálculo** (cada trecho: comprimento, pontas, peças em ordem e resultado).
 
 | Comando | O que faz |
 |---|---|
-| `ALVPLANTA` | Pavimento inteiro: detecta paredes/portas/janelas/encontros, numera e gera a 1ª fiada + cotas. |
+| `ALVPLANTA` | Pavimento inteiro: detecta, marca o que não é alvenaria e gera a 1ª fiada com graute, nomes, aberturas, cotas e título. |
 | `ALVPLANTA2` | Pavimento inteiro: 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada. |
-| `ALVOBRA` | Família, peças desabilitadas, folgas de marco, preços, unidade e escala da obra (gravados no DWG). |
-| `ALV1FIADA` | 1ª fiada + cotas (trechos e vãos). |
-| `ALV2FIADA` | 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada, + cotas. |
+| `ALVOBRA` | Família, peças desabilitadas, folgas, porta, numeração, preços, unidade e escala da obra (gravados no DWG). |
+| `ALV1FIADA` | 1ª fiada de uma parede + cotas. |
+| `ALV2FIADA` | 2ª fiada de uma parede a partir da 1ª desenhada + cotas. |
 | `ALVQUANT` | Quantitativo em CSV (Excel). Enter = desenho inteiro. |
-| `ALVRELATORIO` | Relatório em Word (.docx): inconsistências, avisos e memória de cálculo. |
+| `ALVRELATORIO` | Relatório em Word (.docx): inconsistências, decisões e memória de cálculo. |
 | `ALVCATALOGO` | Lista, adiciona, edita e remove peças e famílias. |
 | `ALVVERSAO` | Versão instalada e caminho do catálogo. |
 | `ALVATUALIZAR` | Procura e instala versão nova. |
@@ -96,72 +105,65 @@ Valem para as duas fiadas, e todas as peças ficam sempre **1 cm uma da outra**:
 
 | Peça | Onde pode entrar |
 |---|---|
-| **39** | Em qualquer lugar. **É sempre a primeira prioridade** (o mais barato). |
-| **34** | **Na ponta da parede que passa direto num canto (L) ou que atravessa um T.** No meio da parede só como ajuste (no máximo três seguidos; depois disso, duas bolachas). |
-| **19** | **Só na ponta de parede sem continuidade** (porta ou parede que termina solta). Nunca em canto, T, cruz ou no meio. Obrigatório junto à porta ("acaba em 20"). |
-| **54** | **Peça fixa, centrada em todo encontro em T e em cruz**, na parede que passa direto naquela fiada. Dois T muito próximos (parede dupla) dividem um 54 só. |
-| **9 e 4 (bolachas)** | **Nunca em canto, encontro ou ponta de porta** (precisa dos septos para o graute). Só no meio da parede, longe das pontas, e por último. |
+| **39** | Em qualquer lugar. **É sempre a primeira prioridade.** |
+| **34** | **Juntos (até quatro) numa ponta do trecho**, nunca no meio: na ponta em que a parede passa no encontro; senão na cortada pela parede que chega no T; senão na que encosta. O plugin prefere vários 34 a usar bolachas. |
+| **19** | **Só na ombreira de porta ou na ponta solta**, alternando 19 e 39 entre as fiadas. Num encontro, só como a peça única de uma boneca ao lado de porta. |
+| **54** | **Peça fixa, centrada no encontro em T e em cruz**, na parede contínua, na fiada em que ela está por cima. Dois T muito próximos dividem um 54. |
+| **9 e 4 (bolachas)** | **Só encostadas no encontro** (ao lado do 54 ou da parede que atravessa) ou como a boneca inteira. Nunca no quadrado do canto, nunca no meio da parede. |
 
-**Amarração nos encontros** (sempre meio bloco, 20 cm, de defasagem entre a 1ª e a 2ª fiada):
+**Amarração nos encontros:**
 
-| Encontro | Fiada em que passa a parede A | Fiada em que passa a parede B |
+| Encontro | Fiada em que a parede A está por cima | Fiada em que a parede B está por cima |
 |---|---|---|
-| **Canto (L)** | A termina em **34** até a face externa; B encosta com **39** | B termina em **34**; A encosta com **39** |
-| **T** (A contínua, B chega) | A recebe um **54 centrado** no T; B encosta com **39** | B atravessa A e termina em **34**; A é cortada e encosta com **39** dos dois lados |
-| **Cruz** | A recebe um **54 centrado**; B é cortada e encosta com **39** | B recebe um **54 centrado**; A é cortada e encosta com **39** |
+| **Canto (L)** | A vai até a face externa e termina em **34**; B encosta a 1 cm | B vai até a face externa; A encosta a 1 cm |
+| **T** (A contínua, B chega) | A recebe um **54 centrado** no T; B encosta nele | B atravessa A até a face de fora; A é cortada, com 1 cm de cada lado |
+| **Cruz** | A recebe um **54 centrado**; B é cortada | B recebe um **54 centrado**; A é cortada |
 
-- Junta de 1 cm. Família 39: só fecham comprimentos terminados em **4 ou 9** (ex.: 599, 604, 639).
-- **Porta:** o plugin **lê o tamanho da folha pelo arco** da porta no desenho e usa **tamanho + 11 cm**,
-  centrado no vão. (A abertura que o arquiteto deixa na parede já inclui o marco: folha de 130 cm →
-  abertura de 140 cm → alvenaria de 141 cm.) Sem arco, usa o vão desenhado + 11.
-- **Janela:** tamanho do vidro + 6 cm. A janela não corta a 1ª nem a 2ª fiada, mas **aparece na cota**.
-- **Cotas pela face da parede**, em cadeia: parede, porta (tamanho + 11), parede, janela (tamanho + 6)...
-- **Diferença do desenho de até 0,5 cm** (a arquitetura não é exata): vai para o lado da porta ou é
-  dividida entre todas as juntas — nunca vira uma junta de 1,5 cm.
-- 2ª fiada: defasagem mínima de **1/4 de bloco (10 cm)**, buscando **meio bloco (20 cm)**. A junta ao
-  lado do 19 da porta é a mesma nas duas fiadas (exceção combinada). Se uma parede não tem solução com
-  a defasagem mínima, ela é feita mesmo assim **com aviso no relatório** (nunca fica vazia).
-- **Parede que não fecha:** as peças são colocadas encostadas na ponta que encosta em **outra parede**
-  (canto/T), e a **sobra vai para o lado da porta**. Assim as peças de paredes diferentes ficam sempre a
-  1 cm, e o relatório diz qual comprimento fecharia.
-- **Blocos do seu desenho:** o plugin mede o bloco real (`P-Bloco39` etc.). Se ele não tiver o tamanho do
-  catálogo (ex.: 40 em vez de 39, ou desenhado em metros), ajusta a escala na inserção e avisa.
+- **Ponto de graute** no centro de todo encontro, nas duas fiadas.
+- Junta de 1 cm. Família 39: só fecham comprimentos terminados em **4 ou 9** (ex.: 599, 604, 639). Por
+  isso os eixos vão para a grade de 5 cm.
+- **Porta:** abertura = medida nominal + 11 cm (porta de 80 → 91). A medida nominal é o vão desenhado,
+  arredondado de 5 em 5 cm.
+- **Janela:** abertura = medida + 1 cm (150 → 151). A janela não corta a 1ª nem a 2ª fiada, mas
+  **aparece na cota** e na anotação. Se a medida real for outra, informe no quadro de janelas.
+- **Cotas internas** por cômodo, de face a face dos blocos, com as aberturas no meio e o total por fora.
+- 2ª fiada: defasagem mínima de **10 cm**, buscando **meio bloco (20 cm)**. Se uma parede não tem
+  solução com a defasagem mínima, ela é feita mesmo assim **com aviso no relatório**.
+- **Parede que não fecha:** as peças são colocadas a partir do encontro e a **sobra vai para o lado da
+  porta**; o relatório diz qual comprimento fecharia.
+- **Blocos do seu desenho:** o plugin mede o bloco real (em cm, em metro ou noutra escala) e insere na
+  medida do catálogo. Só avisa quando a proporção do bloco não bate com a peça.
 
 ### Blocos e layers
 
 Cada peça é inserida como **bloco** com nome, layer e cor do padrão do escritório:
 
-| Bloco | Layer | Cor |
-|---|---|---|
-| `P-Bloco39` | `P-Bloco 14x39` | 74 |
-| `P-Bloco34` | `P-Bloco 14x34` | 170 |
-| `P-Bloco19` | `P-Bloco 14x19` | 204 |
-| `P-Bloco54` | `P-Bloco 14x54` | 30 |
-| `P-Bloco9` | `P-Bloco 14x9` | 8 |
-| `P-Bloco4` | `P-Bloco 14x4` | 8 |
+| Peça | Bloco | Layer | Cor |
+|---|---|---|---|
+| 39 | `P-Bloco39` | `P-Bloco 14x39` | 74 |
+| 34 | `P-Bloco 34` | `P-Bloco 14x34` | 170 |
+| 19 | `P-Bloco 19` | `P-Bloco 14x19` | 204 |
+| 54 | `P-Bloco 54` | `P-Bloco 14x54` | 30 |
+| 9 | `Bloco 9x14` | `BOLACHA 14X4` | 8 |
+| 4 | `bolacha` | `BOLACHA 14X4` | 8 |
 
-Entre um bloco e outro fica 1 cm de junta (argamassa). O plugin assume o ponto base no **canto inferior esquerdo** e o bloco desenhado em
-**cm**. Se o bloco não existir no desenho, cria um bloco provisório (retângulo) com o mesmo nome; ao
-inserir a biblioteca real, os provisórios são substituídos. Layers que já existem mantêm a cor do
-escritório.
+As anotações vão nos layers `Ponto de GROUT - PLANTA` (bloco `PONTO DE GROUT PLANTA`), `TX PAREDES`
+(nomes), `ABERTURA`, `FO-Cotas` e `FO-Títulos`, com texto Arial.
+
+O nome do bloco é achado sem diferenciar espaço, hífen e maiúscula (`P-Bloco 34` = `P-BLOCO34`). Se o
+bloco não existir no desenho, o plugin cria um provisório (retângulo) com o mesmo nome; ao inserir a
+biblioteca real, os provisórios são substituídos. Layers que já existem mantêm a cor do escritório.
 
 O catálogo fica em `%APPDATA%\AlvMod\catalogo.json` e pode ser editado pelo `ALVCATALOGO` ou à mão.
-Catálogos criados pela v0.2 (com os nomes provisórios) são corrigidos sozinhos para esse padrão.
-
-### Comandos parede por parede
-
-`ALV1FIADA`/`ALV2FIADA` seguem as mesmas regras. Como não há arco para ler, o `ALV1FIADA` **pergunta o
-tamanho da porta (folha) e da janela (vidro)** de cada vão (Enter = o vão desenhado). O `ALV2FIADA` usa
-exatamente o trecho que a 1ª fiada ocupa.
+Catálogos de versões anteriores passam sozinhos para esse padrão, sem perder o que foi editado.
 
 ### Limitações atuais
 
 - A leitura automática (`ALVPLANTA`) só pega paredes **ortogonais**. Paredes inclinadas são
   avisadas e devem ser feitas com `ALV1FIADA`/`ALV2FIADA`.
-- A arquitetura não vem modulada, então vários trechos ficam com **sobra de poucos cm**. Eles vão
-  para o relatório com os comprimentos que fecham, e o ajuste é manual.
-- As regras de encontro seguem a amarração direta padrão e **precisam ser validadas pelo
-  engenheiro** num pavimento real.
+- O plugin só sabe o que está na arquitetura: porta que falta no desenho, janela com medida errada ou
+  parede de drywall no layer de alvenaria precisam ser conferidas nos eixos antes de modular.
+- Pontos de graute fora dos encontros (critério do engenheiro) ficam à mão.
 - Ainda não gera as elevações (etapa 2).
 
 ---
@@ -183,6 +185,9 @@ AutoCAD 2025 para net8) com `ExcludeAssets=runtime` ("Copiar Local = Falso").
 ```bash
 dotnet test tests/AlvMod.Core.Tests
 ```
+
+Os testes com plantas reais de clientes leem `tests/AlvMod.Core.Tests/DadosLocais/`, que fica fora do
+repositório; sem a pasta, eles passam sem fazer nada.
 
 ### Publicar uma versão (deploy)
 

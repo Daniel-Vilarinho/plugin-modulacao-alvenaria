@@ -9,10 +9,9 @@ using Autodesk.AutoCAD.Geometry;
 
 namespace AlvMod.Plugin.Desenho
 {
-    /// <summary>Desenha peças e cotas de uma fiada.</summary>
+    /// <summary>Desenha as peças de uma fiada (blocos do catálogo).</summary>
     internal sealed class Desenhista
     {
-        public const string LayerCotas = "COTAS ALVENARIA";
 
         private readonly Database _db;
         private readonly Transaction _tr;
@@ -37,6 +36,12 @@ namespace AlvMod.Plugin.Desenho
         {
             public ObjectId Id;
             public double MinX, MinY, Comprimento, Largura;
+
+            /// <summary>
+            /// Bloco desenhado "em pé": o comprimento da peça no eixo Y do bloco e a largura da parede no X
+            /// (é como a bolacha e o Bloco 9x14 do engenheiro estão desenhados: 14 × 4 e 14 × 9).
+            /// </summary>
+            public bool Girado;
         }
 
         /// <param name="fator">Quantos cm vale 1 unidade do desenho (1 = cm, 100 = m, 0.1 = mm).</param>
@@ -62,76 +67,36 @@ namespace AlvMod.Plugin.Desenho
             string layer = GarantirLayer(peca.Layer, peca.Cor);
             var info = GarantirBloco(peca);
 
-            double sx = 1.0 / _fator, sy = 1.0 / _fator;
-            if (info.Comprimento > 0 && Math.Abs(info.Comprimento - peca.Comprimento) > 0.2)
-                sx *= peca.Comprimento / info.Comprimento;
-            if (info.Largura > 0 && Math.Abs(info.Largura - peca.Largura) > 0.2)
-                sy *= peca.Largura / info.Largura;
+            // Escala de cada eixo do bloco: medida da peça no catálogo ÷ medida do desenho do bloco.
+            double escComp = info.Comprimento > 0 ? peca.Comprimento / _fator / info.Comprimento : 1.0 / _fator;
+            double escLarg = info.Largura > 0 ? peca.Largura / _fator / info.Largura : 1.0 / _fator;
 
             double meia = peca.Largura / 2.0 / _fator;
-            var canto = trecho.PontoEm(item.Inicio / _fator) - trecho.Perpendicular * meia + _deslocamento;
-
-            // O ponto de inserção do bloco pode não ser o canto: desloca pela posição real do canto dele.
+            var noEixo = trecho.PontoEm(item.Inicio / _fator) + _deslocamento;
             double rot = Math.Atan2(trecho.Direcao.Y, trecho.Direcao.X);
-            var u = new Vector3d(Math.Cos(rot), Math.Sin(rot), 0);
-            var v = new Vector3d(-Math.Sin(rot), Math.Cos(rot), 0);
-            var posicao = canto - u * (info.MinX * sx) - v * (info.MinY * sy);
+            var u = new Vector3d(Math.Cos(rot), Math.Sin(rot), 0);   // ao longo da parede
+            var v = new Vector3d(-Math.Sin(rot), Math.Cos(rot), 0);  // atravessando a parede
 
-            var br = new BlockReference(posicao, info.Id)
+            BlockReference br;
+            if (!info.Girado)
             {
-                Rotation = rot,
-                ScaleFactors = new Scale3d(sx, sy, sx),
-                Layer = layer
-            };
+                // X do bloco ao longo da parede: o canto inferior esquerdo do desenho do bloco vai no canto da peça.
+                var posicao = noEixo - v * meia - u * (info.MinX * escComp) - v * (info.MinY * escLarg);
+                br = new BlockReference(posicao, info.Id) { Rotation = rot, ScaleFactors = new Scale3d(escComp, escLarg, escComp) };
+            }
+            else
+            {
+                // Bloco "em pé" girado de −90°: o Y dele vai ao longo da parede e o X atravessa.
+                var posicao = noEixo - u * (info.MinY * escComp) + v * (meia + info.MinX * escLarg);
+                br = new BlockReference(posicao, info.Id)
+                {
+                    Rotation = rot - Math.PI / 2,
+                    ScaleFactors = new Scale3d(escLarg, escComp, escLarg)
+                };
+            }
+            br.Layer = layer;
             Adicionar(br);
             PecasInseridas++;
-        }
-
-        /// <summary>
-        /// Cotas alinhadas em cadeia ao longo da face da parede: cada trecho de alvenaria e cada vão entre eles
-        /// (parede até o vão, o vão, do vão até o fim da parede — questionário, item 47).
-        /// </summary>
-        /// <param name="escala">Denominador da escala de impressão (50 para 1:50).</param>
-        /// <param name="larguraCm">Largura da parede: as cotas medem pela face, não pelo eixo.</param>
-        public int Cotar(IList<Trecho> trechos, double escala, double larguraCm)
-        {
-            if (trechos.Count == 0) return 0;
-            var refT = trechos[0];
-            var pontos = trechos.SelectMany(t => new[] { t.Inicio, t.Fim }).ToList();
-            return CotarPontos(refT, pontos, escala, larguraCm);
-        }
-
-        /// <summary>Cota em cadeia entre pontos consecutivos (já sobre o eixo da parede de referência).</summary>
-        public int CotarPontos(Trecho referencia, IEnumerable<Point3d> pontos, double escala, double larguraCm)
-        {
-            var refT = referencia;
-            var ordenados = pontos
-                .OrderBy(p => (p - refT.Inicio).DotProduct(refT.Direcao))
-                .ToList();
-            if (ordenados.Count < 2) return 0;
-
-            // Tamanhos pensados em papel (mm) e convertidos para o desenho: dimscale = escala / (10 × fator).
-            double dimscale = escala / (10.0 * _fator);
-            double afastamento = 8.0 * dimscale; // 8 mm no papel, abaixo/à direita da parede
-            var face = -refT.Perpendicular * (larguraCm / 2.0 / _fator); // face do lado da cota
-            var lado = -refT.Perpendicular * afastamento;
-            string layer = GarantirLayer(LayerCotas, 2);
-
-            int n = 0;
-            for (int i = 0; i + 1 < ordenados.Count; i++)
-            {
-                if (ordenados[i].DistanceTo(ordenados[i + 1]) < 1e-6) continue;
-                var p1 = ordenados[i] + face + _deslocamento;
-                var p2 = ordenados[i + 1] + face + _deslocamento;
-                var cota = new AlignedDimension(p1, p2, p1 + lado, "", _db.Dimstyle)
-                {
-                    Layer = layer,
-                    Dimscale = dimscale
-                };
-                Adicionar(cota);
-                n++;
-            }
-            return n;
         }
 
         private void Adicionar(Entity ent)
@@ -146,14 +111,17 @@ namespace AlvMod.Plugin.Desenho
 
             var bt = (BlockTable)_tr.GetObject(_db.BlockTableId, OpenMode.ForRead);
             InfoBloco info;
-            if (bt.Has(peca.NomeBlocoDwg))
+            var existente = BlocoDoDesenho(bt, peca.NomeBlocoDwg);
+            if (!existente.IsNull)
             {
-                info = Medir(bt[peca.NomeBlocoDwg], peca);
-                bool difC = Math.Abs(info.Comprimento - peca.Comprimento) > 0.2;
-                bool difL = Math.Abs(info.Largura - peca.Largura) > 0.2;
-                if (difC || difL)
+                info = Medir(existente, peca);
+                // Blocos desenhados em metros ou numa escala qualquer são normais (o engenheiro usa blocos em
+                // metro numa planta em que 1 unidade = 25 cm): só avisa quando a PROPORÇÃO não bate.
+                double proporcaoBloco = info.Largura > 0 ? info.Comprimento / info.Largura : 0;
+                double proporcaoPeca = (double)peca.Comprimento / peca.Largura;
+                if (proporcaoBloco > 0 && Math.Abs(proporcaoBloco / proporcaoPeca - 1) > 0.05)
                     BlocosAjustados[peca.NomeBlocoDwg] =
-                        $"mede {info.Comprimento:0.##} x {info.Largura:0.##} no desenho e {peca.Comprimento} x {peca.Largura} no catálogo";
+                        $"tem proporção {info.Comprimento:0.###} x {info.Largura:0.###} e a peça {peca.Comprimento} x {peca.Largura}";
             }
             else
             {
@@ -175,6 +143,23 @@ namespace AlvMod.Plugin.Desenho
             }
             _info[peca.NomeBlocoDwg] = info;
             return info;
+        }
+
+        /// <summary>
+        /// Bloco do desenho com esse nome, sem diferenciar maiúsculas, espaços e hífens ("P-Bloco 34" = "P-Bloco34"),
+        /// porque cada biblioteca grava de um jeito. Nulo se não existir.
+        /// </summary>
+        private ObjectId BlocoDoDesenho(BlockTable bt, string nome)
+        {
+            if (bt.Has(nome)) return bt[nome];
+            string chave = Familia.NormalizarNome(nome);
+            foreach (ObjectId id in bt)
+            {
+                var btr = (BlockTableRecord)_tr.GetObject(id, OpenMode.ForRead);
+                if (btr.IsLayout || btr.IsAnonymous || btr.IsFromExternalReference) continue;
+                if (Familia.NormalizarNome(btr.Name) == chave) return id;
+            }
+            return ObjectId.Null;
         }
 
         /// <summary>Extensão real do desenho do bloco (canto inferior esquerdo, comprimento e largura).</summary>
@@ -199,10 +184,15 @@ namespace AlvMod.Plugin.Desenho
                 if (ext != null)
                 {
                     var e = ext.Value;
+                    double dx = e.MaxPoint.X - e.MinPoint.X, dy = e.MaxPoint.Y - e.MinPoint.Y;
                     info.MinX = e.MinPoint.X;
                     info.MinY = e.MinPoint.Y;
-                    info.Comprimento = e.MaxPoint.X - e.MinPoint.X;
-                    info.Largura = e.MaxPoint.Y - e.MinPoint.Y;
+                    // Peça mais curta que a largura da parede (bolacha) desenhada "em pé": X = largura, Y = comprimento.
+                    double proporcao = (double)peca.Comprimento / peca.Largura;
+                    info.Girado = peca.Comprimento < peca.Largura && dx > dy &&
+                                  Math.Abs(dy / dx - proporcao) < Math.Abs(dx / dy - proporcao);
+                    info.Comprimento = info.Girado ? dy : dx;
+                    info.Largura = info.Girado ? dx : dy;
                 }
             }
             catch (Autodesk.AutoCAD.Runtime.Exception)
@@ -212,20 +202,6 @@ namespace AlvMod.Plugin.Desenho
             return info;
         }
 
-        private string GarantirLayer(string nome, short cor)
-        {
-            var lt = (LayerTable)_tr.GetObject(_db.LayerTableId, OpenMode.ForRead);
-            if (lt.Has(nome)) return nome; // layer existente: mantém a cor do escritório
-
-            lt.UpgradeOpen();
-            var novo = new LayerTableRecord
-            {
-                Name = nome,
-                Color = Color.FromColorIndex(ColorMethod.ByAci, cor is >= 1 and <= 255 ? cor : (short)7)
-            };
-            lt.Add(novo);
-            _tr.AddNewlyCreatedDBObject(novo, true);
-            return nome;
-        }
+        private string GarantirLayer(string nome, short cor) => Camadas.Garantir(_db, _tr, nome, cor);
     }
 }

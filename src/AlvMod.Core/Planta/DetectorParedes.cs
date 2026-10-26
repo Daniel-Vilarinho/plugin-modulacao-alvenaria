@@ -67,7 +67,8 @@ namespace AlvMod.Core.Planta
             var paredes = new List<Parede>();
             paredes.AddRange(Unir(faixasH, faixasV, Orientacao.Horizontal, ctx, op));
             paredes.AddRange(Unir(faixasV, faixasH, Orientacao.Vertical, ctx, op));
-            paredes = paredes.Where(p => p.Comprimento >= op.ComprimentoMinimo).ToList();
+            paredes = Filtrar(paredes, planta, op);
+            paredes = AplicarExclusoes(paredes, planta, op);
             for (int i = 0; i < paredes.Count; i++) paredes[i].Indice = i;
             planta.Paredes.AddRange(paredes);
 
@@ -76,25 +77,139 @@ namespace AlvMod.Core.Planta
         }
 
         /// <summary>
-        /// Quando nenhuma parede é encontrada, testa as unidades comuns (cm, m, mm, polegada) para sugerir a
-        /// certa ao usuário. Os segmentos chegam em cm pela unidade atual (<paramref name="fatorAtual"/>).
+        /// Espessura típica das paredes do desenho (cm): a mais frequente, ponderada pelo comprimento.
+        /// Com a unidade certa, para blocos de 14 cm ela fica entre 14 e 20 cm.
         /// </summary>
-        /// <returns>O fator (cm por unidade do desenho) que encontra mais paredes, ou nulo se nenhum encontra.</returns>
+        public static double EspessuraTipica(IEnumerable<Parede> paredes)
+        {
+            var grupos = paredes.GroupBy(p => Math.Round(p.Espessura))
+                .Select(g => (esp: g.Key, peso: g.Sum(p => p.Comprimento)))
+                .OrderByDescending(g => g.peso)
+                .ToList();
+            return grupos.Count == 0 ? 0 : grupos[0].esp;
+        }
+
+        /// <summary>
+        /// Descarta o que não é parede de alvenaria (e anota em <see cref="PlantaDetectada.Ignoradas"/>):
+        ///  - pedaços curtos (menores que <see cref="OpcoesDeteccao.ComprimentoMinimo"/>, ou mais curtos que 1,5 × a
+        ///    espessura): marcos, batentes, sobras de linha;
+        ///  - "paredes" quase inteiras de vão (vãos cobrindo mais de 90% do comprimento): pareamento errado;
+        ///  - espessura muito diferente da típica (degraus de escada, bancadas, muretas desenhadas no layer).
+        /// </summary>
+        private static List<Parede> Filtrar(List<Parede> paredes, PlantaDetectada planta, OpcoesDeteccao op)
+        {
+            var boas = new List<Parede>();
+            foreach (var p in paredes)
+            {
+                double emVao = p.Vaos.Sum(v => v.Largura);
+                if (p.Comprimento < op.ComprimentoMinimo || p.Comprimento < 1.5 * p.Espessura)
+                    continue; // pedaço de marco/batente: não vale a pena listar
+                if (emVao > 0.9 * p.Comprimento)
+                {
+                    planta.Ignoradas.Add($"{Descrever(p)}: quase toda vão ({emVao:0} de {p.Comprimento:0} cm), não é parede");
+                    continue;
+                }
+                boas.Add(p);
+            }
+
+            double tipica = EspessuraTipica(boas);
+            planta.EspessuraTipica = tipica;
+            if (tipica <= 0) return boas;
+            var resultado = new List<Parede>();
+            foreach (var p in boas)
+            {
+                if (Math.Abs(p.Espessura - tipica) > op.VariacaoEspessura)
+                {
+                    planta.Ignoradas.Add($"{Descrever(p)}: espessura {p.Espessura:0.#} cm, diferente da típica ({tipica:0} cm) — escada, mureta ou bancada?");
+                    continue;
+                }
+                resultado.Add(p);
+            }
+            return resultado;
+        }
+
+        private static string Descrever(Parede p) =>
+            $"{(p.Horizontal ? "horizontal" : "vertical")} em {(p.Horizontal ? "y" : "x")} = {p.Coord:0.#}, de {p.Inicio:0.#} a {p.Fim:0.#}";
+
+        /// <summary>
+        /// Paredes que o projetista marcou como não sendo de alvenaria (drywall, shaft): o trecho entre os
+        /// encontros vizinhos ao ponto clicado sai do desenho; o resto da parede continua.
+        /// </summary>
+        private static List<Parede> AplicarExclusoes(List<Parede> paredes, PlantaDetectada planta, OpcoesDeteccao op)
+        {
+            if (op.Exclusoes.Count == 0) return paredes;
+            var lista = paredes.ToList();
+            foreach (var (x, y) in op.Exclusoes)
+            {
+                var w = lista
+                    .Where(p => Math.Abs(p.Transversal(x, y) - p.Coord) <= p.Espessura / 2 + 3 &&
+                                p.AoLongo(x, y) >= p.Inicio - 3 && p.AoLongo(x, y) <= p.Fim + 3)
+                    .OrderBy(p => Math.Abs(p.Transversal(x, y) - p.Coord))
+                    .FirstOrDefault();
+                if (w == null)
+                {
+                    planta.Avisos.Add($"Exclusão em ({x:0}; {y:0}): nenhuma parede ali.");
+                    continue;
+                }
+                double t = w.AoLongo(x, y);
+                // Cortes possíveis: eixos das paredes perpendiculares que tocam esta.
+                var cortes = lista.Where(p => p.Orientacao != w.Orientacao &&
+                                              p.Coord > w.Inicio - 3 && p.Coord < w.Fim + 3 &&
+                                              w.Coord >= p.Inicio - p.Espessura / 2 - w.Espessura / 2 - 3 &&
+                                              w.Coord <= p.Fim + p.Espessura / 2 + w.Espessura / 2 + 3)
+                    .Select(p => p.Coord).ToList();
+                double a = cortes.Where(c => c < t).DefaultIfEmpty(w.Inicio).Max();
+                double b = cortes.Where(c => c > t).DefaultIfEmpty(w.Fim).Min();
+                lista.Remove(w);
+                if (a - w.Inicio >= op.ComprimentoMinimo) lista.Add(Pedaco(w, w.Inicio, a));
+                if (w.Fim - b >= op.ComprimentoMinimo) lista.Add(Pedaco(w, b, w.Fim));
+                planta.Excluidas.Add((w.Orientacao, w.Coord, Math.Max(a, w.Inicio), Math.Min(b, w.Fim)));
+            }
+            return lista;
+        }
+
+        private static Parede Pedaco(Parede w, double a, double b)
+        {
+            var p = Nova(w.Orientacao, w.Coord, a, b, w.Espessura);
+            p.Vaos.AddRange(w.Vaos.Where(v => v.Inicio >= a - 0.5 && v.Fim <= b + 0.5));
+            return p;
+        }
+
+        /// <summary>
+        /// Unidade do desenho que faz as paredes aparecerem com espessura de parede de bloco (12 a 22 cm).
+        /// Serve quando nenhuma parede é encontrada ou quando a espessura típica sai fora disso — por exemplo,
+        /// arquitetura em escala 1:50 lida como metro: as paredes de 15 cm aparecem com 30 cm (unidade certa: 50).
+        /// Os segmentos chegam em cm pela unidade atual (<paramref name="fatorAtual"/>).
+        /// </summary>
+        /// <returns>O fator (cm por unidade do desenho) que encontra mais paredes com espessura de bloco, ou nulo.</returns>
         public static double? SugerirFatorCm(IEnumerable<Segmento> segmentosEmCm, double fatorAtual, OpcoesDeteccao op)
         {
-            var lista = segmentosEmCm.Where(s => op.LayersParede.Contains(s.Layer ?? "")).ToList();
-            double? melhor = null;
-            int maisParedes = 0;
-            foreach (double candidato in new[] { 1, 100, 0.1, 2.54 })
+            if (fatorAtual <= 0) return null;
+            var lista = segmentosEmCm.ToList();
+            int Pontos(double fator)
             {
-                if (Math.Abs(candidato - fatorAtual) < 1e-9 || fatorAtual <= 0) continue;
-                double k = candidato / fatorAtual;
-                var escalados = lista.Select(s => new Segmento(s.Layer, s.X1 * k, s.Y1 * k, s.X2 * k, s.Y2 * k));
-                int n = Detectar(escalados, op).Paredes.Count;
+                double k = fator / fatorAtual;
+                var escalados = lista.Select(s => new Segmento(s.Layer, s.X1 * k, s.Y1 * k, s.X2 * k, s.Y2 * k)
+                    { Raio = s.Raio * k, Cx = s.Cx * k, Cy = s.Cy * k });
+                var planta = Detectar(escalados, op);
+                return planta.EspessuraTipica >= 12 && planta.EspessuraTipica <= 22 ? planta.Paredes.Count : 0;
+            }
+
+            int atual = Pontos(fatorAtual);
+            double? melhor = null;
+            int maisParedes = atual;
+            foreach (double candidato in new[] { 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 0.1, 2.54 })
+            {
+                if (Math.Abs(candidato - fatorAtual) < 1e-9) continue;
+                int n = Pontos(candidato);
                 if (n > maisParedes) { maisParedes = n; melhor = candidato; }
             }
             return melhor;
         }
+
+        /// <summary>A espessura típica está fora do que se espera de parede de bloco (12 a 22 cm)?</summary>
+        public static bool EspessuraSuspeita(PlantaDetectada planta) =>
+            planta.Paredes.Count == 0 || planta.EspessuraTipica < 12 || planta.EspessuraTipica > 22;
 
         // ------------------------------------------------------------------ passo 1
 
@@ -210,9 +325,10 @@ namespace AlvMod.Core.Planta
                         else
                         {
                             var tv = tipo == Buraco.Porta ? TipoVao.Porta : tipo == Buraco.Janela ? TipoVao.Janela : TipoVao.Passagem;
-                            double tamanho = tv == TipoVao.Porta ? TamanhoPorta(hor, c, esp, ga, gb, ctx)
+                            int dobradica = 0;
+                            double tamanho = tv == TipoVao.Porta ? TamanhoPorta(hor, c, esp, ga, gb, ctx, out dobradica)
                                            : tv == TipoVao.Janela ? TamanhoJanela(hor, c, esp, ga, gb, ctx) : 0;
-                            atual.Vaos.Add(new Vao { Tipo = tv, Inicio = ga, Fim = gb, Tamanho = tamanho });
+                            atual.Vaos.Add(new Vao { Tipo = tv, Inicio = ga, Fim = gb, Tamanho = tamanho, LadoDobradica = dobradica });
                             atual.Fim = Math.Max(atual.Fim, f.B);
                         }
                     }
@@ -248,16 +364,25 @@ namespace AlvMod.Core.Planta
             bool temPorta = ctx.Portas.Any(p =>
                 Ao(p.x, p.y) >= ga - 2 && Ao(p.x, p.y) <= gb + 2 && Tr(p.x, p.y) >= t0 && Tr(p.x, p.y) <= t1);
 
-            double cobertura = 0;
+            // Cobertura = união dos vidros/peitoris paralelos dentro do vão (o vidro pode vir em folhas).
+            var trechos = new List<(double a, double b)>();
             foreach (var s in ctx.Janelas)
             {
                 bool paralela = hor ? Math.Abs(s.Y2 - s.Y1) <= 0.5 : Math.Abs(s.X2 - s.X1) <= 0.5;
                 if (!paralela || Tr(s.X1, s.Y1) < t0 || Tr(s.X1, s.Y1) > t1) continue;
                 double a = Math.Max(ga, Math.Min(Ao(s.X1, s.Y1), Ao(s.X2, s.Y2)));
                 double b = Math.Min(gb, Math.Max(Ao(s.X1, s.Y1), Ao(s.X2, s.Y2)));
-                cobertura = Math.Max(cobertura, b - a);
+                if (b > a) trechos.Add((a, b));
+            }
+            double cobertura = 0, fimCoberto = double.MinValue;
+            foreach (var (a, b) in trechos.OrderBy(x => x.a))
+            {
+                double ini = Math.Max(a, fimCoberto);
+                if (b > ini) cobertura += b - ini;
+                fimCoberto = Math.Max(fimCoberto, b);
             }
             bool temJanela = gap <= op.JanelaMaxima && cobertura >= gap / 2;
+            if (temPorta && gap > op.PortaMaxima && !temJanela) temPorta = false; // não existe porta desse tamanho
 
             if (temPorta || temJanela)
             {
@@ -280,11 +405,12 @@ namespace AlvMod.Core.Planta
         }
 
         /// <summary>
-        /// Tamanho da porta = raio do arco de abertura da folha (a abertura desenhada na parede inclui o
-        /// marco: folha 130 → abertura 140). Folha dupla: soma dos raios dos dois arcos. 0 = sem arco.
+        /// Folha da porta = raio do arco de abertura (folha dupla: soma dos dois raios; 0 = sem arco). Só vai
+        /// para o relatório: a abertura usa a medida nominal do vão desenhado. O centro do arco dá a dobradiça.
         /// </summary>
-        private static double TamanhoPorta(bool hor, double c, double esp, double ga, double gb, ContextoVaos ctx)
+        private static double TamanhoPorta(bool hor, double c, double esp, double ga, double gb, ContextoVaos ctx, out int dobradica)
         {
+            dobradica = 0;
             double gap = gb - ga;
             var arcos = ctx.Arcos
                 .Where(a =>
@@ -302,6 +428,8 @@ namespace AlvMod.Core.Planta
             double centroMaior = hor ? maior.Cx : maior.Cy;
             var outro = arcos.Where(a => Math.Abs((hor ? a.Cx : a.Cy) - centroMaior) > gap * 0.5)
                 .OrderByDescending(a => a.Raio).FirstOrDefault();
+            // O centro do arco é a dobradiça (porta de uma folha): de que lado do vão ela fica.
+            if (outro == null) dobradica = centroMaior < (ga + gb) / 2 ? -1 : 1;
             return outro != null ? maior.Raio + outro.Raio : maior.Raio;
         }
 
