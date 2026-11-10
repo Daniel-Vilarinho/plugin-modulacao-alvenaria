@@ -107,6 +107,18 @@ namespace AlvMod.Core.Tests
         }
 
         [Fact]
+        public void Porta_nunca_fica_a_menos_de_5_cm_da_outra_parede()
+        {
+            // Porta desenhada encostada na parede da esquerda: ela anda até sobrar a boneca de 5 cm.
+            var p = Plantas.Detectar(Plantas.Sala());
+            var porta = p.Paredes.Single(w => w.Horizontal && w.Coord < 20).Vaos.Single();
+            porta.Inicio -= 37; porta.Fim -= 37;   // abertura de 91 a 2,5 cm da face
+            var (sol, _) = Plantas.Modular(p);
+
+            Assert.True(Plantas.MenorBoneca(p, new OpcoesFiadas()) >= 4.75, string.Join("; ", sol.Avisos));
+        }
+
+        [Fact]
         public void Janela_nao_corta_a_primeira_nem_a_segunda_fiada()
         {
             var (p, sol, mod) = Sala();

@@ -112,5 +112,25 @@ namespace AlvMod.Core.Tests
             foreach (var f in sol.Plano(fiada).Fixas) Add(f.Parede, f.Inicio, f.Fim, f.Peca.Codigo);
             return r;
         }
+
+        /// <summary>Menor boneca de porta do pavimento (onde ela cabe dos dois lados): da face da parede que encontra a da porta até o vão (cm).</summary>
+        internal static double MenorBoneca(PlantaDetectada p, OpcoesFiadas op)
+        {
+            double menor = double.MaxValue;
+            foreach (var w in p.Paredes)
+                foreach (var e in p.EncontrosDe(w))
+                {
+                    double t = w.AoLongo(e.X, e.Y);
+                    foreach (var v in w.VaosQueCortam().Where(v => v.Tipo == TipoVao.Porta))
+                    {
+                        var (a, b) = v.Alvenaria(op.FolgaPorta);
+                        // Parede curta demais para ter boneca dos dois lados (ex.: 110 cm com porta de 91): não conta.
+                        if (w.Comprimento - op.Largura < b - a + 2 * op.BonecaMinima) continue;
+                        double boneca = b <= t ? t - op.Largura / 2 - b : a - (t + op.Largura / 2);
+                        if (boneca < 60) menor = Math.Min(menor, boneca);
+                    }
+                }
+            return menor;
+        }
     }
 }

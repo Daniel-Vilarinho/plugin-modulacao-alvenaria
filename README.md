@@ -42,12 +42,10 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
      modulação anterior (blocos, graute, nomes, aberturas, cotas, eixos), pergunta se apaga antes de refazer;
    - detecta paredes, portas, janelas e encontros (L/T/X), põe os eixos na **grade de 5 cm** e desenha
      os eixos e números provisórios para conferência (layer `ALV-EIXOS`);
-   - pergunta se há paredes que **não são de alvenaria** (drywall, shaft): clique em cada uma. Elas saem
-     da modulação e ficam gravadas na obra;
    - pergunta se pode modular, o **quadro de janelas** ("medida x altura / peitoril" de cada largura
      desenhada) e se é para cotar;
    - desenha a **1ª fiada do pavimento todo**: blocos, pontos de graute nos encontros, "PAREDE n" (paredes
-     iguais com o mesmo número), aberturas ("ABERTURA 91x220"), "PAREDE EM DRY WALL", cotas internas e
+     iguais com o mesmo número), aberturas ("ABERTURA 91x220"), cotas internas e
      o título "Planta de 1ª fiada - Modulação".
 2. Confira e edite a 1ª fiada à mão.
 3. **`ALVPLANTA2`**: selecione a planta da 1ª fiada (arquitetura + blocos já editados) e indique um
@@ -61,7 +59,8 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
   pavimento inteiro, a combinação que gasta **menos peças especiais**; no empate, nos T e cruzes, a
   parede vertical fica por cima na 1ª fiada.
 - Cada **porta pode andar até 12 cm** ao longo da parede para os pedaços dos dois lados fecharem com
-  blocos inteiros; do lado da dobradiça sempre fica alvenaria. O relatório diz quanto cada porta andou.
+  blocos inteiros; do lado da dobradiça sempre fica alvenaria, e entre a outra parede e a porta fica
+  sempre uma **boneca de pelo menos 5 cm** (1 cm de junta + bolacha de 4). O relatório diz quanto cada porta andou.
 - **Apartamentos espelhados** recebem a modulação espelhada.
 
 ## Fluxo de trabalho: parede por parede
@@ -88,7 +87,7 @@ Ao abrir o AutoCAD, se houver versão nova aparece **"Há uma nova versão do Al
 
 | Comando | O que faz |
 |---|---|
-| `ALVPLANTA` | Pavimento inteiro: detecta, marca o que não é alvenaria e gera a 1ª fiada com graute, nomes, aberturas, cotas e título. |
+| `ALVPLANTA` | Pavimento inteiro: detecta e gera a 1ª fiada com graute, nomes, aberturas, cotas e título. |
 | `ALVPLANTA2` | Pavimento inteiro: 2ª fiada a partir da 1ª desenhada, na planta da 2ª fiada. |
 | `ALVOBRA` | Família, peças desabilitadas, folgas, porta, numeração, preços, unidade e escala da obra (gravados no DWG). |
 | `ALV1FIADA` | 1ª fiada de uma parede + cotas. |
@@ -162,8 +161,8 @@ Catálogos de versões anteriores passam sozinhos para esse padrão, sem perder 
 - A leitura automática (`ALVPLANTA`) só pega paredes **ortogonais**. Paredes inclinadas são
   avisadas e devem ser feitas com `ALV1FIADA`/`ALV2FIADA`.
 - O plugin só sabe o que está na arquitetura: porta que falta no desenho, janela com medida errada ou
-  parede de drywall no layer de alvenaria precisam ser conferidas nos eixos antes de modular.
-- Pontos de graute fora dos encontros (critério do engenheiro) ficam à mão.
+  parede que não é estrutural precisam sair da arquitetura (ou ser conferidas nos eixos) antes de modular.
+- Pontos de graute: o plugin marca só os encontros (critério ainda a definir).
 - Ainda não gera as elevações (etapa 2).
 
 ---

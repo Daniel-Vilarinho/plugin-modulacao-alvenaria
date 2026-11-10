@@ -57,7 +57,6 @@ namespace AlvMod.Plugin
                 var conferencia = DesenharEixos(doc.Database, tr, leitura.Planta, ctx.Config.FatorCm, ctx.Config.Escala);
                 ed.WriteMessage($"\n{Resumo(leitura.Planta)}");
                 ed.WriteMessage($"\nEixos e números provisórios desenhados no layer \"{LayerEixos}\" para conferência.");
-                if (!MarcarNaoAlvenaria(doc, tr, sel, ctx, ref leitura, ref conferencia)) return;
 
                 var confirma = Perguntas.SimNao(ed, "\nModular a 1ª fiada?", true);
                 if (confirma != true)
@@ -231,47 +230,6 @@ namespace AlvMod.Plugin
             foreach (var l in cfg.LayersJanela) op.LayersJanela.Add(l);
             foreach (var x in cfg.Exclusoes) op.Exclusoes.Add((x.X, x.Y));
             return op;
-        }
-
-        /// <summary>
-        /// Paredes que o projetista não vai fazer em bloco (drywall, shaft, mureta): clica em cada uma.
-        /// Ficam gravadas na obra (o ALVPLANTA2 e os próximos ALVPLANTA usam as mesmas).
-        /// </summary>
-        private static bool MarcarNaoAlvenaria(Document doc, Transaction tr, ObjectId[] sel, ContextoObra ctx,
-            ref Leitura leitura, ref Conferencia conferencia)
-        {
-            var ed = doc.Editor;
-            var cfg = ctx.Config;
-            bool mudou = false;
-            if (cfg.Exclusoes.Count > 0)
-            {
-                var manter = Perguntas.SimNao(ed, $"\nEsta obra tem {cfg.Exclusoes.Count} parede(s) marcada(s) como não alvenaria. Manter?", true);
-                if (manter == null) return false;
-                if (manter == false) { cfg.Exclusoes.Clear(); mudou = true; }
-            }
-            var marcar = Perguntas.SimNao(ed, "\nMarcar paredes que NÃO são de alvenaria (drywall, shaft)?", false);
-            if (marcar == null) return false;
-            while (marcar == true)
-            {
-                var r = ed.GetPoint(new PromptPointOptions("\nClique na parede que NÃO é alvenaria <Enter = terminar>: ") { AllowNone = true });
-                if (r.Status == PromptStatus.None) break;
-                if (r.Status != PromptStatus.OK) return false;
-                var tipo = Perguntas.Opcao(ed, "\nÉ", new[] { "Drywall", "Shaft" }, "Drywall");
-                if (tipo == null) return false;
-                var p = r.Value.TransformBy(ed.CurrentUserCoordinateSystem);
-                cfg.Exclusoes.Add(new Exclusao { X = p.X * cfg.FatorCm, Y = p.Y * cfg.FatorCm, Tipo = tipo.ToLowerInvariant() });
-                mudou = true;
-            }
-            if (!mudou) return true;
-
-            // Lê de novo sem as paredes marcadas e redesenha a conferência.
-            foreach (var id in conferencia.Eixos.Concat(conferencia.Nomes)) tr.GetObject(id, OpenMode.ForWrite).Erase();
-            var nova = Ler(doc, tr, sel, ctx, conferirUnidade: false);
-            if (nova == null) return false;
-            leitura = nova;
-            conferencia = DesenharEixos(doc.Database, tr, leitura.Planta, cfg.FatorCm, cfg.Escala);
-            ed.WriteMessage($"\n{leitura.Planta.Excluidas.Count} trecho(s) fora da modulação. {Resumo(leitura.Planta)}");
-            return true;
         }
 
         /// <summary>

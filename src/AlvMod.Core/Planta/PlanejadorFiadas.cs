@@ -89,6 +89,12 @@ namespace AlvMod.Core.Planta
         /// com blocos inteiros. 0 = portas exatamente onde a arquitetura desenhou.
         /// </summary>
         public double DeslocamentoMaximoPorta { get; set; } = 12;
+
+        /// <summary>
+        /// Boneca mínima da porta (cm): da face da outra parede até o vão da porta sempre fica pelo menos isso
+        /// de alvenaria (1 cm de junta + bolacha de 4). O engenheiro nunca encosta a porta na outra parede.
+        /// </summary>
+        public double BonecaMinima { get; set; } = 5;
     }
 
     /// <summary>
@@ -422,6 +428,7 @@ namespace AlvMod.Core.Planta
                     total += custo(t) ?? Penalidade;
                 total += curtos.Count(a => a.Contains("curto demais")) * Penalidade;
                 total += curtos.Count(a => a.Contains("dobradiça")) * (Penalidade / 5);
+                total += curtos.Count(a => a.Contains("boneca da porta")) * (Penalidade / 2);
             }
             return total;
         }
@@ -522,6 +529,20 @@ namespace AlvMod.Core.Planta
                     cortes.Add(new Corte { A = t - recuo, B = t + recuo, Antes = tipoCorte, Depois = tipoCorte });
                 }
             }
+
+            // Boneca mínima: entre a face de uma parede que encontra esta e o vão da porta.
+            if (fiada == 1)
+                foreach (var e in planta.EncontrosDe(w).Where(e => e.Tipo != TipoEncontro.Outro))
+                {
+                    double t = w.AoLongo(e.X, e.Y);
+                    foreach (var v in w.VaosQueCortam().Where(v => v.Tipo == TipoVao.Porta))
+                    {
+                        var (a, b) = v.Alvenaria(op.FolgaPorta);
+                        double boneca = b <= t ? t - meia - b : a - (t + meia);
+                        if (boneca < op.BonecaMinima - 0.25 && (b <= t ? b > t - meia - 60 : a < t + meia + 60))
+                            avisos?.Add($"{w.Nome}: boneca da porta com {Math.Max(0, boneca):0.#} cm (mínimo {op.BonecaMinima:0.#} cm).");
+                    }
+                }
 
             // Portas e passagens cortam a alvenaria: medida nominal + folga de marco.
             foreach (var (a, b) in portas)

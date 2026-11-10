@@ -194,6 +194,7 @@ namespace AlvMod.Core.Tests
                 var (a, b) = v.Alvenaria(11);
                 Assert.Contains(Math.Round(b - a), new double[] { 81, 91 });
             }
+            Assert.True(Plantas.MenorBoneca(c.Planta, new OpcoesFiadas()) >= 4.75);
         }
 
         [Fact]

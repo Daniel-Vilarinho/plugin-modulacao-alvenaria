@@ -71,6 +71,7 @@ Os testes ficam em `tests/AlvMod.Core.Tests`:
 |---|---|---|---|---|
 | A1 | Porta: abertura = **medida nominal** (vão desenhado arredondado de 5 em 5) **+ 11**: porta de 80 → 91, de 70 → 81. *Substitui C1-8 (folha lida pelo arco + 11), que vinha de ler a arquitetura na unidade errada.* | Q30, E1, R | `Vao.Nominal`, `Vao.Alvenaria` | `Det.Porta_80_vira_abertura_de_91_e_janela_100_de_101`, `Ref.Segunda_fiada_sem_junta_a_prumo_e_portas_com_91` |
 | A2 | A porta **anda até 12 cm** ao longo da parede para os pedaços dos dois lados fecharem com blocos inteiros. Do lado da **dobradiça** (centro do arco) sempre fica alvenaria; do lado do trinco a porta pode chegar na face da outra parede (o encontro passa a ser contínuo nas duas fiadas). | R | `PlanejadorFiadas.Resolver` (`MoverPortas`), `Vao.LadoDobradica` | `Plan.Porta_abre_91_e_anda_no_maximo_12_cm_para_fechar` |
+| A2b | **Boneca da porta de pelo menos 5 cm** em toda porta: da face da outra parede até o vão fica 1 cm de junta + 4 de alvenaria, no mínimo; a porta anda para isso. Só em parede curta demais para ter boneca dos dois lados (ex.: 110 cm com porta de 91) a porta encosta, com aviso no relatório. | cliente | `OpcoesFiadas.BonecaMinima`, `PlanejadorFiadas.PlanejarParede` | `Plan.Porta_nunca_fica_a_menos_de_5_cm_da_outra_parede`, `Ref.Segunda_fiada_sem_junta_a_prumo_e_portas_com_91` |
 | A3 | Janela: abertura = **medida + 1** (150 → 151). **Não corta** a 1ª nem a 2ª fiada, mas entra nas cotas e na anotação. *Substitui "vidro + 6".* | Q32, Q33, R | `Vao.Alvenaria`, `ConfigObra.FolgaJanela` | `Det.Porta_80_vira_abertura_de_91_e_janela_100_de_101`, `Plan.Janela_nao_corta_a_primeira_nem_a_segunda_fiada` |
 | A4 | **Quadro de janelas**: para cada largura desenhada o projetista informa "medida x altura / peitoril" (a arquitetura pode ter a janela com outra medida). Fica gravado na obra. | R | `ComandosPlanta.PerguntarJanelas`, `ConfigObra.Janelas`, `Vao.MedidaInformada` | AutoCAD |
 | A5 | Folgas (11 e 1), deslocamento máximo da porta (12), altura da porta (220) e numeração por tipo mudam por obra. | E1 | `ALVOBRA`, `ConfigObra` | `Cat.Folga_padrao_porta_11_janela_1_e_igual_na_obra_e_no_planejador`, `Cat.Config_da_obra_ida_e_volta` |
@@ -88,7 +89,7 @@ Os testes ficam em `tests/AlvMod.Core.Tests`:
 | L6 | Paredes inclinadas existem, mas são raras: aviso e `ALV1FIADA`. | Q25 | aviso em `DetectorParedes.Detectar` | — |
 | L7 | O que está no layer de parede mas não é parede (degraus de escada, linha no meio da parede, pedaço curto, espessura fora da típica da obra) é **ignorado e listado no relatório**. | R | `DetectorParedes.Filtrar` | `Det.Degraus_de_escada_no_layer_de_parede_nao_viram_parede`, `Det.Parede_com_linha_no_meio_e_uma_parede_so` |
 | L8 | Janela com o vidro em várias folhas: a janela é a união delas. | R | `DetectorParedes` (cobertura do vão) | `Det.Janela_com_vidro_em_folhas_cobre_o_vao` |
-| L9 | **Paredes que não são alvenaria** (drywall, shaft): o projetista clica nelas; saem da modulação, o encontro some, e o drywall recebe o texto "PAREDE EM DRY WALL". Ficam gravadas na obra. | R | `DetectorParedes.AplicarExclusoes`, `ConfigObra.Exclusoes`, `ComandosPlanta.MarcarNaoAlvenaria` | `Det.Parede_que_nao_e_alvenaria_sai_e_o_encontro_desaparece` |
+| L9 | **Paredes que não são alvenaria** (drywall, shaft): o projetista clica nelas; saem da modulação, o encontro some, Ficam gravadas na obra. *Na prática o engenheiro tira da arquitetura o que não é estrutural antes de mandar; o ALVPLANTA não pergunta mais.* | R | `DetectorParedes.AplicarExclusoes`, `ConfigObra.Exclusoes`, `ComandosPlanta.MarcarNaoAlvenaria` | `Det.Parede_que_nao_e_alvenaria_sai_e_o_encontro_desaparece` |
 | L10 | **Eixos na grade de 5 cm** (a arquitetura vem com diferenças de milímetros); aviso quando precisa mover mais de 1,5 cm. | R | `GradeModular.Ajustar` | `Det.Grade_modular_poe_os_eixos_a_distancias_multiplas_de_5` |
 
 ## 6. Saída
@@ -103,7 +104,7 @@ Os testes ficam em `tests/AlvMod.Core.Tests`:
 | S6 | **Numeração por tipo** ("Modulação TIPOS"): paredes com a mesma modulação nas duas fiadas (lida de qualquer lado) recebem o mesmo número; "PAREDE n" do lado de dentro, no layer `TX PAREDES`. Ordem: horizontais de cima para baixo, depois verticais da esquerda para a direita. Na obra dá para voltar a um número por parede. | Q48, R | `Numeracao.NumerarPorTipo`, `Numeracao.Assinatura`, `ConfigObra.NumeracaoPorTipo`, `Anotador.Rotulo` | `Plan.Numeracao_por_tipo_da_o_mesmo_numero_a_paredes_iguais` |
 | S7 | **Cotas internas** por cômodo, de face a face dos blocos, em cadeia com as aberturas ("40 / 151 / 45") e o total por fora; a fachada não leva cota interna. Medidas em cm em qualquer unidade do desenho (estilo `ALVMOD 1-25`, layer `FO-Cotas`). | Q47, E1, R | `Anotacoes.CotasInternas`, `Anotador.CotasInternas`, `Camadas.Cota` | `Plan.Cotas_internas_de_face_a_face_dos_blocos_com_as_aberturas` |
 | S8 | **Aberturas anotadas** no layer `ABERTURA`: retângulo do vão na alvenaria, "ABERTURA" e a medida ("91x220" na porta, "151 x 100 / 120" na janela). | R | `Anotador.Abertura`, `Anotador.MedidaJanela` | AutoCAD |
-| S9 | **Título** embaixo da planta: "Planta de 1ª fiada - Modulação" (ou 2ª) e "escala 1:25", no layer `FO-Títulos`. | R | `Anotador.Titulo` | AutoCAD |
+| S9 | **Título** embaixo da planta: "Planta de 1ª fiada - Modulação" (ou 2ª) e "escala 1:50" (escala padrão da obra), no layer `FO-Títulos`. | R | `Anotador.Titulo` | AutoCAD |
 | S10 | **Quantitativo** de blocos para o Excel, com preço quando informado. | Q7, Q49, Q54 | `ALVQUANT`, `Quantitativo` | `Cat.Quantitativo_conta_por_bloco_e_calcula_total_com_preco` |
 | S11 | **Relatório** em Word com as paredes que precisam de ajuste. | Q50 | `ALVRELATORIO`, `RelatorioDocx` | `Cat.Relatorio_docx_e_um_zip_com_document_xml_e_texto_escapado` |
 | S12 | **Memória de cálculo e decisões** no relatório: por trecho, o comprimento, as pontas, as peças em ordem e se fechou; e as decisões do planejamento (portas deslocadas, eixos ajustados, simetria, pedaços ignorados). | auditoria, R | `MemoriaCalculo`, `Registro`, `ComandosPlanta.RegistrarDecisoes` | `Cat.Memoria_de_calculo_descreve_pontas_pecas_e_situacao_e_vai_no_relatorio` |
@@ -123,10 +124,8 @@ Os testes ficam em `tests/AlvMod.Core.Tests`:
 
 ## Interpretações a confirmar com o engenheiro
 
-1. **Sufixos -A/-B.** Na modulação de referência os sufixos das paredes espelhadas não seguem uma regra
-   única (há parede espelhada sem sufixo). O plugin dá o mesmo número às paredes iguais e não usa A/B.
-   Se ele quiser A/B, a regra entra em `Numeracao.NumerarPorTipo`.
-2. **Pontos de graute fora dos encontros.** Além dos encontros, ele põe alguns pontos por critério
+1. **Nomenclatura das paredes** (-A/-B): o cliente pediu para não se preocupar; o plugin numera por tipo.
+2. **Pontos de graute fora dos encontros** (adiado pelo cliente). Além dos encontros, ele põe alguns pontos por critério
    próprio (vão grande, ponta de parede). O plugin só marca os encontros; os outros ficam à mão.
 3. **Medida das janelas.** O desenho da arquitetura pode ter a janela com outra medida (uma de 50 que é
    de 60, outra de 150 que é de 200). O plugin pergunta o quadro de janelas; sem ele, usa o desenho.
